@@ -43,7 +43,7 @@ class AsmClassRemapper extends ClassRemapper {
 	public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
 		String remappedDescriptor = remapper.mapMethodDesc(descriptor);
 		String mappedName = remapper.mapMethodName(className, name, descriptor);
-		MethodVisitor methodVisitor = super.visitMethod(access, mappedName, remappedDescriptor, remapper.mapSignature(signature, false), exceptions == null ? null : remapper.mapTypes(exceptions));
+		MethodVisitor methodVisitor = cv.visitMethod(access, mappedName, remappedDescriptor, remapper.mapSignature(signature, false), exceptions == null ? null : remapper.mapTypes(exceptions));
 		String[] locals = ((AsmRemapper) remapper).getLocalVariables(remapper.mapType(className), mappedName, descriptor);
 		return new AsmMethodRemapper(methodVisitor, remapper, locals, renameInvalidLocals);
 	}
