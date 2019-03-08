@@ -40,16 +40,27 @@ class AsmClassRemapper extends ClassRemapper {
 	}
 
 	@Override
-	protected MethodVisitor createMethodRemapper(MethodVisitor mv) {
-		return new AsmMethodRemapper(mv, remapper, renameInvalidLocals);
+	public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+		String remappedDescriptor = remapper.mapMethodDesc(descriptor);
+		String mappedName = remapper.mapMethodName(className, name, descriptor);
+		MethodVisitor methodVisitor = super.visitMethod(access, mappedName, remappedDescriptor, remapper.mapSignature(signature, false), exceptions == null ? null : remapper.mapTypes(exceptions));
+		String[] locals = ((AsmRemapper) remapper).getLocalVariables(remapper.mapType(className), mappedName, descriptor);
+		return new AsmMethodRemapper(methodVisitor, remapper, locals, renameInvalidLocals);
+	}
+
+	@Override
+	protected MethodVisitor createMethodRemapper(MethodVisitor methodVisitor) {
+		throw new UnsupportedOperationException("Can't remap locals without knowing the method they're for");
 	}
 
 	private static class AsmMethodRemapper extends MethodRemapper {
 		private final Map<String, Integer> nameCounts = new HashMap<>();
+		private final String[] remappedLocals;
 		private final boolean renameInvalidLocals;
 
-		public AsmMethodRemapper(MethodVisitor methodVisitor, Remapper remapper, boolean renameInvalidLocals) {
+		public AsmMethodRemapper(MethodVisitor methodVisitor, Remapper remapper, String[] locals, boolean renameInvalidLocals) {
 			super(methodVisitor, remapper);
+			remappedLocals = locals;
 			this.renameInvalidLocals = renameInvalidLocals;
 		}
 
@@ -59,7 +70,10 @@ class AsmClassRemapper extends ClassRemapper {
 
 			descriptor = remapper.mapDesc(descriptor);
 
-			if (renameInvalidLocals && !isValidJavaIdentifier(name)) {
+			String mappedName = remappedLocals != null && remappedLocals.length > index ? remappedLocals[index] : null;
+			if (mappedName != null) {
+				name = mappedName;
+			} else if (renameInvalidLocals && !isValidJavaIdentifier(name)) {
 				Type type = Type.getType(descriptor);
 				boolean plural = false;
 

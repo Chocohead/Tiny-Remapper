@@ -109,7 +109,7 @@ public class TinyRemapper {
 			TinyRemapper remapper = new TinyRemapper(threadCount, forcePropagation, propagatePrivate, removeFrames, ignoreConflicts, resolveMissing, rebuildSourceFilenames, renameInvalidLocals);
 
 			for (IMappingProvider provider : mappingProviders) {
-				provider.load(remapper.classMap, remapper.fieldMap, remapper.methodMap);
+				provider.load(remapper.classMap, remapper.fieldMap, remapper.methodMap, remapper.localMap);
 			}
 
 			return remapper;
@@ -536,8 +536,15 @@ public class TinyRemapper {
 						|| (member.access & (Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE)) == 0 // not private and not static
 						|| propagatePrivate
 						|| !forcePropagation.isEmpty() && forcePropagation.contains(name.replace('/', '.')+"."+member.name)) { // don't rename private members unless forced or initial (=dir any)
-					ConcurrentMap<String, String> outputMap = (type == MemberType.METHOD) ? methodsToMap : fieldsToMap;
-					String prev = outputMap.putIfAbsent(idSrc, idDst);
+					String prev;
+					if (type == MemberType.METHOD) {
+						prev = methodsToMap.putIfAbsent(idSrc, idDst);
+
+						String[] old = localsToMap.putIfAbsent(idDst, localMap.get(originatingCls+'/'+idDst));
+						if (old != null) checkLocals(originatingCls+'#'+idDst, old, localMap.get(originatingCls+'/'+idDst));
+					} else {
+						prev = fieldsToMap.putIfAbsent(idSrc, idDst);
+					}
 
 					if (prev != null && !prev.equals(idDst)) {
 						conflicts.computeIfAbsent(new TypedMember(this, type, idSrc), x -> Collections.newSetFromMap(new ConcurrentHashMap<>())).add(originatingCls+"/"+idDst);
@@ -556,8 +563,14 @@ public class TinyRemapper {
 				// Java likes/allows to access members in a super class by querying the "this"
 				// class directly. To cover this, outputMap is being populated regardless.
 
-				ConcurrentMap<String, String> outputMap = (type == MemberType.METHOD) ? methodsToMap : fieldsToMap;
-				outputMap.putIfAbsent(idSrc, idDst);
+				if (type == MemberType.METHOD) {
+					methodsToMap.putIfAbsent(idSrc, idDst);
+
+					String[] old = localsToMap.putIfAbsent(idDst, localMap.get(originatingCls+'/'+idDst));
+					if (old != null) checkLocals(originatingCls+'#'+idDst, old, localMap.get(originatingCls+'/'+idDst));
+				} else {
+					fieldsToMap.putIfAbsent(idSrc, idDst);
+				}
 			}
 
 			assert isVirtual || dir == Direction.DOWN;
@@ -592,6 +605,16 @@ public class TinyRemapper {
 					if (visitedDown.add(node)) {
 						node.propagate(type, originatingCls, idSrc, idDst, Direction.DOWN, isVirtual, false, visitedUp, visitedDown);
 					}
+				}
+			}
+		}
+
+		private void checkLocals(String method, String[] old, String[] current) {
+			assert old.length == current.length;
+
+			for (int i = 0; i < old.length; i++) {
+				if (old[i] != null && !old[i].equals(current[i])) {
+					System.out.println(method + " mixed local " + i + " from " + old[i] + " to " + current[i]);
 				}
 			}
 		}
@@ -668,6 +691,7 @@ public class TinyRemapper {
 		private final Set<RClass> parents = new HashSet<RClass>();
 		private final Set<RClass> children = new HashSet<RClass>();
 		final ConcurrentMap<String, String> methodsToMap = new ConcurrentHashMap<String, String>();
+		final ConcurrentMap<String, String[]> localsToMap = new ConcurrentHashMap<>();
 		final ConcurrentMap<String, String> fieldsToMap = new ConcurrentHashMap<String, String>();
 		String name;
 		String superName;
@@ -797,6 +821,7 @@ public class TinyRemapper {
 	private final boolean renameInvalidLocals;
 	final Map<String, String> classMap = new HashMap<>();
 	final Map<String, String> methodMap = new HashMap<>();
+	final Map<String, String[]> localMap = new HashMap<>();
 	final Map<String, String> fieldMap = new HashMap<>();
 	final Map<String, RClass> nodes = new HashMap<>();
 	private final Map<TypedMember, Set<String>> conflicts = new ConcurrentHashMap<>();

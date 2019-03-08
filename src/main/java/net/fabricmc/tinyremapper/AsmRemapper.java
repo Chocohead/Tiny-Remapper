@@ -92,6 +92,17 @@ class AsmRemapper extends Remapper {
 		}
 	}
 
+	public String[] getLocalVariables(String owner, String name, String desc) {
+		RClass cls = getClass(owner);
+		if (cls == null) return null;
+
+		String[] ret = cls.localsToMap.get(name+desc);
+		if (ret != null) return ret;
+
+		assert remapper.localMap.get(owner+'/'+name+desc) == null;
+		return null;
+	}
+
 	private RClass getClass(String owner) {
 		RClass ret = remapper.nodes.get(owner);
 		if (ret != null) return ret;
