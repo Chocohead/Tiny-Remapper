@@ -542,8 +542,13 @@ public class TinyRemapper {
 
 						String[] locals = localMap.get(originatingCls+'/'+idSrc);
 						if (locals != null) {
-							String[] old = localsToMap.putIfAbsent(idSrc, locals);
-							if (old != null) checkLocals(name+'#'+idDst, originatingCls+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
+							if (first) {//If we're directly mapped give priority over propagated locals that might have arrived first
+								String[] old = localsToMap.put(idSrc, locals);
+								if (old != null) checkLocals(idSrc, name+'#'+idDst, originatingCls+'#'+idDst, locals, old);
+							} else {
+								String[] old = localsToMap.putIfAbsent(idSrc, locals);
+								if (old != null) checkLocals(idSrc, name+'#'+idDst, originatingCls+'#'+idDst, old, locals);
+							}
 						}
 					} else {
 						prev = fieldsToMap.putIfAbsent(idSrc, idDst);
@@ -571,8 +576,13 @@ public class TinyRemapper {
 
 					String[] locals = localMap.get(originatingCls+'/'+idSrc);
 					if (locals != null) {
-						String[] old = localsToMap.putIfAbsent(idSrc, locals);
-						if (old != null) checkLocals(name+'#'+idDst, originatingCls+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
+						if (first) {//If we're directly mapped give priority over propagated locals that might have arrived first
+							String[] old = localsToMap.put(idSrc, locals);
+							if (old != null) checkLocals(idSrc, name+'#'+idDst, originatingCls+'#'+idDst, locals, old);
+						} else {
+							String[] old = localsToMap.putIfAbsent(idSrc, locals);
+							if (old != null) checkLocals(idSrc, name+'#'+idDst, originatingCls+'#'+idDst, old, locals);
+						}
 					}
 				} else {
 					fieldsToMap.putIfAbsent(idSrc, idDst);
@@ -615,27 +625,33 @@ public class TinyRemapper {
 			}
 		}
 
-		private void checkLocals(String ourMethod, String propMethod, String[] old, String[] current) {
-			//assert old.length == current.length; //Not necessarily true for bad locals
+		private void checkLocals(String idSrc, String ourMethod, String propMethod, String[] current, String[] replacement) {
+			//assert old.length == current.length; //Not necessarily true for propagated locals which are differently mapped
+			assert localsToMap.get(idSrc) == current;
 
 			int i = 0;
-			for (int limit = Math.min(old.length, current.length); i < limit; i++) {
-				if (old[i] != null && !old[i].equals(current[i])) {
-					System.out.println(ourMethod + " mismatched local " + i + ' ' + old[i] + " rather than " + current[i] + " propagating from " + propMethod);
+			for (int limit = Math.min(current.length, replacement.length); i < limit; i++) {
+				if (current[i] != null) {
+					if (!current[i].equals(replacement[i])) {
+						System.out.println(ourMethod + " mismatched local " + i + ' ' + current[i] + " rather than " + replacement[i] + " propagating from " + propMethod);
+					}
+				} else if (replacement[i] != null) {
+					System.out.println(ourMethod + " gained local " + i + ' ' + current[i] + " whilst propagating " + propMethod);
+					current[i] = replacement[i]; //Gain the mapping
 				}
 			}
-			String comment;
-			String[] bigger;
-			if (old.length > current.length) {
-				bigger = old;
-				comment = " lost";
+			if (current.length > replacement.length) {
+				for (int limit = current.length; i < limit; i++) {
+					System.out.println(ourMethod + " lost local " + i + ' ' + current[i] + " whilst propagating " + propMethod);
+				}
 			} else {
-				bigger = current;
-				comment = " gained";
+				for (int limit = replacement.length; i < limit; i++) {
+					System.out.println(ourMethod + " gained local " + i + ' ' + current[i] + " whilst propagating " + propMethod);
+				}
+				System.arraycopy(current, 0, replacement, 0, current.length);
+				localsToMap.put(idSrc, replacement); //Grow
 			}
-			for (int limit = bigger.length; i < limit; i++) {
-				System.out.println(ourMethod + comment + " local " + i + ' ' + bigger[i] + " whilst propagating " + propMethod);
-			}
+			
 		}
 
 		RClass resolve(MemberType type, String id, Set<RClass> visited, Queue<RClass> queue) {
