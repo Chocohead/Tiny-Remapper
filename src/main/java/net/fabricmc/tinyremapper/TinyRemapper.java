@@ -540,10 +540,10 @@ public class TinyRemapper {
 					if (type == MemberType.METHOD) {
 						prev = methodsToMap.putIfAbsent(idSrc, idDst);
 
-						String[] locals = localMap.get(originatingCls+'/'+idDst);
+						String[] locals = localMap.get(originatingCls+'/'+idSrc);
 						if (locals != null) {
-							String[] old = localsToMap.putIfAbsent(idDst, locals);
-							if (old != null) checkLocals(name+'#'+idDst, old, localMap.get(originatingCls+'/'+idDst));
+							String[] old = localsToMap.putIfAbsent(idSrc, locals);
+							if (old != null) checkLocals(name+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
 						}
 					} else {
 						prev = fieldsToMap.putIfAbsent(idSrc, idDst);
@@ -569,10 +569,10 @@ public class TinyRemapper {
 				if (type == MemberType.METHOD) {
 					methodsToMap.putIfAbsent(idSrc, idDst);
 
-					String[] locals = localMap.get(originatingCls+'/'+idDst);
+					String[] locals = localMap.get(originatingCls+'/'+idSrc);
 					if (locals != null) {
-						String[] old = localsToMap.putIfAbsent(idDst, locals);
-						if (old != null) checkLocals(name+'#'+idDst, old, localMap.get(originatingCls+'/'+idDst));
+						String[] old = localsToMap.putIfAbsent(idSrc, locals);
+						if (old != null) checkLocals(name+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
 					}
 				} else {
 					fieldsToMap.putIfAbsent(idSrc, idDst);
