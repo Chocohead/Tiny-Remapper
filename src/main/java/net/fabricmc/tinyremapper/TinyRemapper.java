@@ -543,7 +543,7 @@ public class TinyRemapper {
 						String[] locals = localMap.get(originatingCls+'/'+idSrc);
 						if (locals != null) {
 							String[] old = localsToMap.putIfAbsent(idSrc, locals);
-							if (old != null) checkLocals(name+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
+							if (old != null) checkLocals(name+'#'+idDst, originatingCls+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
 						}
 					} else {
 						prev = fieldsToMap.putIfAbsent(idSrc, idDst);
@@ -572,7 +572,7 @@ public class TinyRemapper {
 					String[] locals = localMap.get(originatingCls+'/'+idSrc);
 					if (locals != null) {
 						String[] old = localsToMap.putIfAbsent(idSrc, locals);
-						if (old != null) checkLocals(name+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
+						if (old != null) checkLocals(name+'#'+idDst, originatingCls+'#'+idDst, old, localMap.get(originatingCls+'/'+idSrc));
 					}
 				} else {
 					fieldsToMap.putIfAbsent(idSrc, idDst);
@@ -615,12 +615,12 @@ public class TinyRemapper {
 			}
 		}
 
-		private void checkLocals(String method, String[] old, String[] current) {
+		private void checkLocals(String ourMethod, String propMethod, String[] old, String[] current) {
 			assert old.length == current.length;
 
 			for (int i = 0; i < old.length; i++) {
 				if (old[i] != null && !old[i].equals(current[i])) {
-					System.out.println(method + " mixed local " + i + " from " + old[i] + " to " + current[i]);
+					System.out.println(ourMethod + " mixed local " + i + " from " + old[i] + " to " + current[i] + " propagating from " + propMethod);
 				}
 			}
 		}
