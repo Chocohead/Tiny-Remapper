@@ -616,12 +616,25 @@ public class TinyRemapper {
 		}
 
 		private void checkLocals(String ourMethod, String propMethod, String[] old, String[] current) {
-			assert old.length == current.length;
+			//assert old.length == current.length; //Not necessarily true for bad locals
 
-			for (int i = 0; i < old.length; i++) {
+			int i = 0;
+			for (int limit = Math.min(old.length, current.length); i < limit; i++) {
 				if (old[i] != null && !old[i].equals(current[i])) {
-					System.out.println(ourMethod + " mixed local " + i + " from " + old[i] + " to " + current[i] + " propagating from " + propMethod);
+					System.out.println(ourMethod + " mismatched local " + i + ' ' + old[i] + " rather than " + current[i] + " propagating from " + propMethod);
 				}
+			}
+			String comment;
+			String[] bigger;
+			if (old.length > current.length) {
+				bigger = old;
+				comment = " lost";
+			} else {
+				bigger = current;
+				comment = " gained";
+			}
+			for (int limit = bigger.length; i < limit; i++) {
+				System.out.println(ourMethod + comment + " local " + i + ' ' + bigger[i] + " whilst propagating " + propMethod);
 			}
 		}
 
