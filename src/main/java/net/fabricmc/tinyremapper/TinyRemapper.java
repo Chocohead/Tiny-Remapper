@@ -646,7 +646,7 @@ public class TinyRemapper {
 				}
 			} else {
 				for (int limit = replacement.length; i < limit; i++) {
-					System.out.println(ourMethod + " gained local " + i + ' ' + current[i] + " whilst propagating " + propMethod);
+					System.out.println(ourMethod + " gained local " + i + ' ' + replacement[i] + " whilst propagating " + propMethod);
 				}
 				System.arraycopy(current, 0, replacement, 0, current.length);
 				localsToMap.put(idSrc, replacement); //Grow
