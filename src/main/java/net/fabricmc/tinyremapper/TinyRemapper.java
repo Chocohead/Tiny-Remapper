@@ -54,6 +54,7 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.commons.Remapper;
 import org.objectweb.asm.util.CheckClassAdapter;
 
 public class TinyRemapper {
@@ -146,6 +147,11 @@ public class TinyRemapper {
 
 	public static Builder newRemapper() {
 		return new Builder();
+	}
+
+	/** Getter for Loom's sake */
+	public Remapper getRemapper() {
+		return remapper;
 	}
 
 	public void finish() {
