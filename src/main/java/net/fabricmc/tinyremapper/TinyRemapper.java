@@ -132,7 +132,7 @@ public class TinyRemapper {
 			boolean removeFrames,
 			boolean ignoreConflicts,
 			boolean resolveMissing,
-		    boolean rebuildSourceFilenames,
+			boolean rebuildSourceFilenames,
 			boolean renameInvalidLocals) {
 		this.threadCount = threadCount > 0 ? threadCount : Math.max(Runtime.getRuntime().availableProcessors(), 2);
 		this.threadPool = Executors.newFixedThreadPool(this.threadCount);
@@ -454,7 +454,7 @@ public class TinyRemapper {
 		return writer.toByteArray();
 	}
 
-	private void waitForAll(Iterable<Future<?>> futures) {
+	private static void waitForAll(Iterable<Future<?>> futures) {
 		try {
 			for (Future<?> future : futures) {
 				future.get();
@@ -464,7 +464,7 @@ public class TinyRemapper {
 		}
 	}
 
-	String getClassName(String nameDesc, MemberType type) {
+	private static String getClassName(String nameDesc, MemberType type) {
 		int descStart = getDescStart(nameDesc, type);
 		int nameStart = nameDesc.lastIndexOf('/', descStart - 1);
 		if (nameStart == -1) nameStart = 0;
@@ -472,7 +472,7 @@ public class TinyRemapper {
 		return nameDesc.substring(0, nameStart);
 	}
 
-	String stripClassName(String nameDesc, MemberType type) {
+	private static String stripClassName(String nameDesc, MemberType type) {
 		int descStart = getDescStart(nameDesc, type);
 		int nameStart = nameDesc.lastIndexOf('/', descStart - 1);
 		if (nameStart == -1) nameStart = 0;
@@ -480,11 +480,11 @@ public class TinyRemapper {
 		return nameDesc.substring(nameStart + 1);
 	}
 
-	String stripDesc(String nameDesc, MemberType type) {
+	private static String stripDesc(String nameDesc, MemberType type) {
 		return nameDesc.substring(0, getDescStart(nameDesc, type));
 	}
 
-	private int getDescStart(String nameDesc, MemberType type) {
+	private static int getDescStart(String nameDesc, MemberType type) {
 		int ret;
 
 		if (type == MemberType.METHOD) {
