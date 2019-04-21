@@ -76,6 +76,17 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 		isJar = dstDir.getFileSystem().provider().getScheme().equals("jar");
 	}
 
+	public void addNonClassFile(Path srcFile, String first, String... more) throws IOException {
+		if (!Files.exists(srcFile)) throw new FileNotFoundException("File " + srcFile + " doesn't exist");
+		assert !Files.isDirectory(srcFile);
+
+		if (srcFile.toString().endsWith(classSuffix)) return;
+		Path dstFile = dstDir.resolve(dstDir.getFileSystem().getPath(first, more));
+
+		createParentDirs(dstFile);
+		Files.copy(srcFile, dstFile, StandardCopyOption.REPLACE_EXISTING);
+	}
+	
 	public void addNonClassFiles(Path srcFile) throws IOException {
 		addNonClassFiles(srcFile, NonClassCopyMode.UNCHANGED, null);
 	}

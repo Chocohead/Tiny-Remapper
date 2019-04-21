@@ -89,6 +89,10 @@ class AsmRemapper extends Remapper {
 		return mapMethodNamePrefixDesc(owner, name, null);
 	}
 
+	public String[] getLocalVariables(String owner, String name, String desc) {
+		return remapper.localMap.get(owner + '/' + name + desc);
+	}
+	
 	private ClassInstance getClass(String owner) {
 		return remapper.classes.get(owner);
 	}

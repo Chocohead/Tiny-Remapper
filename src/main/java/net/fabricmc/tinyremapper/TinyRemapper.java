@@ -53,6 +53,7 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.commons.Remapper;
 import org.objectweb.asm.util.CheckClassAdapter;
 
 import net.fabricmc.tinyremapper.MemberInstance.MemberType;
@@ -110,7 +111,7 @@ public class TinyRemapper {
 			TinyRemapper remapper = new TinyRemapper(threadCount, forcePropagation, propagatePrivate, removeFrames, ignoreConflicts, resolveMissing, rebuildSourceFilenames, renameInvalidLocals);
 
 			for (IMappingProvider provider : mappingProviders) {
-				provider.load(remapper.classMap, remapper.fieldMap, remapper.methodMap);
+				provider.load(remapper.classMap, remapper.fieldMap, remapper.methodMap, remapper.localMap);
 			}
 
 			return remapper;
@@ -149,6 +150,11 @@ public class TinyRemapper {
 		return new Builder();
 	}
 
+	/** Getter for Loom's sake */
+	public Remapper getRemapper() {
+		return remapper;
+	}
+	
 	public void finish() {
 		threadPool.shutdown();
 		try {
@@ -640,6 +646,7 @@ public class TinyRemapper {
 	private final boolean renameInvalidLocals;
 	final Map<String, String> classMap = new HashMap<>();
 	final Map<String, String> methodMap = new HashMap<>();
+	final Map<String, String[]> localMap = new HashMap<>();
 	final Map<String, String> fieldMap = new HashMap<>();
 	final Map<String, ClassInstance> classes = new HashMap<>();
 	final Map<MemberInstance, Set<String>> conflicts = new ConcurrentHashMap<>();

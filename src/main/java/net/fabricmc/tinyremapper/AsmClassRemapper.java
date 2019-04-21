@@ -50,8 +50,17 @@ class AsmClassRemapper extends ClassRemapper {
 	}
 
 	@Override
-	protected MethodVisitor createMethodRemapper(MethodVisitor mv) {
-		return new AsmMethodRemapper(mv, remapper, className, renameInvalidLocals);
+	public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+		String remappedDescriptor = remapper.mapMethodDesc(descriptor);
+		String mappedName = remapper.mapMethodName(className, name, descriptor);
+		MethodVisitor methodVisitor = cv.visitMethod(access, mappedName, remappedDescriptor, remapper.mapSignature(signature, false), exceptions == null ? null : remapper.mapTypes(exceptions));
+		String[] locals = ((AsmRemapper) remapper).getLocalVariables(remapper.mapType(className), name, descriptor);
+		return new AsmMethodRemapper(methodVisitor, remapper, className, locals, renameInvalidLocals);
+	}
+
+	@Override
+	protected MethodVisitor createMethodRemapper(MethodVisitor methodVisitor) {
+		throw new UnsupportedOperationException("Can't remap locals without knowing the method they're for");
 	}
 
 	private static class AsmFieldRemapper extends FieldRemapper {
@@ -71,10 +80,11 @@ class AsmClassRemapper extends ClassRemapper {
 	}
 
 	private static class AsmMethodRemapper extends MethodRemapper {
-		public AsmMethodRemapper(MethodVisitor methodVisitor, Remapper remapper, String className, boolean renameInvalidLocals) {
+		public AsmMethodRemapper(MethodVisitor methodVisitor, Remapper remapper, String className, String[] locals, boolean renameInvalidLocals) {
 			super(methodVisitor, remapper);
 
 			this.className = className;
+			remappedLocals = locals == null ? new String[0] : locals;
 			this.renameInvalidLocals = renameInvalidLocals;
 		}
 
@@ -104,7 +114,10 @@ class AsmClassRemapper extends ClassRemapper {
 
 			descriptor = remapper.mapDesc(descriptor);
 
-			if (renameInvalidLocals && !isValidJavaIdentifier(name)) {
+			String mappedName = remappedLocals.length > index ? remappedLocals[index] : null;
+			if (mappedName != null) {
+				name = mappedName;
+			} else if (renameInvalidLocals && !isValidJavaIdentifier(name)) {
 				Type type = Type.getType(descriptor);
 				boolean plural = false;
 
@@ -189,6 +202,7 @@ class AsmClassRemapper extends ClassRemapper {
 		}
 
 		private final String className;
+		private final String[] remappedLocals;
 		private final Map<String, Integer> nameCounts = new HashMap<>();
 		private final boolean renameInvalidLocals;
 	}
