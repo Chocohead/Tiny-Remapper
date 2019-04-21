@@ -17,6 +17,12 @@
 
 package net.fabricmc.tinyremapper;
 
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Queue;
+import java.util.Set;
+
 import org.objectweb.asm.commons.Remapper;
 
 import net.fabricmc.tinyremapper.MemberInstance.MemberType;
@@ -90,7 +96,29 @@ class AsmRemapper extends Remapper {
 	}
 
 	public String[] getLocalVariables(String owner, String name, String desc) {
-		return remapper.localMap.get(owner + '/' + name + desc);
+		String[] locals = remapper.localMap.get(mapType(owner) + '/' + name + desc);
+		if (locals != null) return locals;
+
+		ClassInstance cls = getClass(owner);
+		if (cls == null) return new String[0];
+
+		Set<ClassInstance> tried = Collections.newSetFromMap(new IdentityHashMap<>());
+		tried.add(cls);
+
+		Queue<ClassInstance> possibilities = new ArrayDeque<>(cls.parents);
+		while (!possibilities.isEmpty()) {
+			ClassInstance possibility = possibilities.poll();
+
+			locals = remapper.localMap.get(mapType(possibility.getName()) + '/' + name + desc);
+			if (locals != null) return locals;
+
+			tried.add(possibility);
+			for (ClassInstance parent : possibility.parents) {
+				if (!tried.contains(parent)) possibilities.add(parent);
+			}
+		}
+
+		return new String[0];
 	}
 	
 	private ClassInstance getClass(String owner) {
