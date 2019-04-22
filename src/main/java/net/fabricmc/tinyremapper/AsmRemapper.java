@@ -102,6 +102,12 @@ class AsmRemapper extends Remapper {
 		ClassInstance cls = getClass(owner);
 		if (cls == null) return new String[0];
 
+		MemberInstance method = cls.resolve(MemberType.METHOD, MemberInstance.getMethodId(name, desc));
+		if (method != null) {
+			locals = remapper.localMap.get(map(method.cls.getName()) + '/' + method.name + method.desc);
+			if (locals != null) return locals;
+		}
+
 		Set<ClassInstance> tried = Collections.newSetFromMap(new IdentityHashMap<>());
 		tried.add(cls);
 
@@ -109,7 +115,7 @@ class AsmRemapper extends Remapper {
 		while (!possibilities.isEmpty()) {
 			ClassInstance possibility = possibilities.poll();
 
-			locals = remapper.localMap.get(mapType(possibility.getName()) + '/' + name + desc);
+			locals = remapper.localMap.get(map(possibility.getName()) + '/' + name + desc);
 			if (locals != null) return locals;
 
 			tried.add(possibility);
