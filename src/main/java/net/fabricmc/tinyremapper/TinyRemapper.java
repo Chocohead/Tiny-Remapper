@@ -254,7 +254,7 @@ public class TinyRemapper {
 	private List<ClassInstance> readFile(Path file, boolean isInput, final Path srcPath, boolean saveData, List<FileSystem> fsToClose) throws IOException, URISyntaxException {
 		List<ClassInstance> ret = new ArrayList<ClassInstance>();
 
-		if (file.toString().endsWith(".class")) {
+		if (isAnalyzeTarget(file)) {
 			ret.add(analyze(isInput, srcPath, Files.readAllBytes(file), saveData));
 		} else {
 			URI uri = new URI("jar:"+file.toUri().toString());
@@ -274,7 +274,7 @@ public class TinyRemapper {
 			Files.walkFileTree(fs.getPath("/"), new SimpleFileVisitor<Path>() {
 				@Override
 				public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-					if (file.toString().endsWith(".class")) {
+					if (isAnalyzeTarget(file)) {
 						ret.add(analyze(isInput, srcPath, Files.readAllBytes(file), saveData));
 					}
 
@@ -284,6 +284,10 @@ public class TinyRemapper {
 		}
 
 		return ret;
+	}
+
+	private static boolean isAnalyzeTarget(Path path) {
+		return path.toString().endsWith(".class") && !"module-info.class".equals(path.getFileName().toString());
 	}
 
 	private ClassInstance analyze(boolean isInput, Path srcPath, byte[] data, boolean saveData) {
