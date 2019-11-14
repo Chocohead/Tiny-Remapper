@@ -156,9 +156,9 @@ public final class TinyUtils {
 	}
 
 	private static MappingProvider createInternalMappingProvider(final Path mappings, String fromM, String toM) {
-		return (classMap, fieldMap, methodMap, lineMap) -> {
+		return (classMap, fieldMap, methodMap, localMap) -> {
 			try (BufferedReader reader = getMappingReader(mappings)) {
-				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap, lineMap);
+				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap, localMap);
 			} catch (IOException e) {
 				throw new RuntimeException(e);
 			}
@@ -182,9 +182,9 @@ public final class TinyUtils {
 	}
 
 	private static MappingProvider createInternalMappingProvider(final BufferedReader reader, String fromM, String toM) {
-		return (classMap, fieldMap, methodMap, lineMap) -> {
+		return (classMap, fieldMap, methodMap, localMap) -> {
 			try {
-				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap, lineMap);
+				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap, localMap);
 			} catch (IOException e) {
 				throw new RuntimeException(e);
 			}
@@ -193,7 +193,7 @@ public final class TinyUtils {
 		};
 	}
 
-	private static void readInternal(BufferedReader reader, String fromM, String toM, Map<String, String> classMap, Map<String, String> fieldMap, Map<String, String> methodMap, Map<String, String[]> lineMap) throws IOException {
+	private static void readInternal(BufferedReader reader, String fromM, String toM, Map<String, String> classMap, Map<String, String> fieldMap, Map<String, String> methodMap, Map<String, String[]> localMap) throws IOException {
 		TinyUtils.read(reader, fromM, toM, (classFrom, classTo) -> {
 			classMap.put(classFrom, classTo);
 		}, (fieldFrom, nameTo) -> {
@@ -201,7 +201,7 @@ public final class TinyUtils {
 		}, (methodFrom, nameTo) -> {
 			methodMap.put(methodFrom.owner + "/" + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), nameTo);
 		}, (methodFrom, paramNames) -> {
-			lineMap.put(methodFrom.owner + '/' + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), paramNames);
+			localMap.put(methodFrom.owner + '/' + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), paramNames);
 		});
 	}
 
@@ -218,7 +218,7 @@ public final class TinyUtils {
 			BiConsumer<String, String> classMappingConsumer,
 			BiConsumer<Mapping, String> fieldMappingConsumer,
 			BiConsumer<Mapping, String> methodMappingConsumer,
-			BiConsumer<Mapping, String[]> lineMappingConsumer) throws IOException {
+			BiConsumer<Mapping, String[]> localMappingConsumer) throws IOException {
 		String headerLine = reader.readLine();
 
 		if (headerLine == null) {
