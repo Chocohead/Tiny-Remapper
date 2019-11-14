@@ -18,14 +18,22 @@
 package net.fabricmc.tinyremapper;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.zip.GZIPInputStream;
 
@@ -70,14 +78,87 @@ public final class TinyUtils {
 		}
 	}
 
+	@FunctionalInterface
+	private interface MappingProvider extends IMappingProvider {
+		@Override
+		default void load(Map<String, String> classMap, Map<String, String> fieldMap, Map<String, String> methodMap) {
+			load(classMap, fieldMap, methodMap, new Map<String, String[]>() {
+				@Override
+				public int size() {
+					return 0;
+				}
+
+				@Override
+				public boolean isEmpty() {
+					return true;
+				}
+
+				@Override
+				public boolean containsKey(Object key) {
+					return false;
+				}
+
+				@Override
+				public boolean containsValue(Object value) {
+					return false;
+				}
+
+				@Override
+				public String[] get(Object key) {
+					return null;
+				}
+
+				@Override
+				public String[] put(String key, String[] value) {
+					return null;
+				}
+
+				@Override
+				public void putAll(Map<? extends String, ? extends String[]> map) {
+				}
+
+				@Override
+				public String[] remove(Object key) {
+					return null;
+				}
+
+				@Override
+				public void clear() {
+				}
+
+				@Override
+				public Set<String> keySet() {
+					return Collections.emptySet();
+				}
+
+				@Override
+				public Collection<String[]> values() {
+					return Collections.emptySet();
+				}
+
+				@Override
+				public Set<Entry<String, String[]>> entrySet() {
+					return Collections.emptySet();
+				}
+			});
+		}
+
+		@Override
+		void load(Map<String, String> classMap, Map<String, String> fieldMap, Map<String, String> methodMap, Map<String, String[]> localMap);
+	}
+
 	private TinyUtils() {
 
 	}
 
 	public static IMappingProvider createTinyMappingProvider(final Path mappings, String fromM, String toM) {
-		return (classMap, fieldMap, methodMap) -> {
-			try (BufferedReader reader = getMappingReader(mappings.toFile())) {
-				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap);
+		return createInternalMappingProvider(mappings, fromM, toM);
+	}
+
+	private static MappingProvider createInternalMappingProvider(final Path mappings, String fromM, String toM) {
+		return (classMap, fieldMap, methodMap, lineMap) -> {
+			try (BufferedReader reader = getMappingReader(mappings)) {
+				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap, lineMap);
 			} catch (IOException e) {
 				throw new RuntimeException(e);
 			}
@@ -86,10 +167,10 @@ public final class TinyUtils {
 		};
 	}
 
-	private static BufferedReader getMappingReader(File file) throws IOException {
-		InputStream is = new FileInputStream(file);
+	private static BufferedReader getMappingReader(Path file) throws IOException {
+		InputStream is = Files.newInputStream(file);
 
-		if (file.getName().endsWith(".gz")) {
+		if (file.getFileName().toString().endsWith(".gz")) {
 			is = new GZIPInputStream(is);
 		}
 
@@ -97,9 +178,13 @@ public final class TinyUtils {
 	}
 
 	public static IMappingProvider createTinyMappingProvider(final BufferedReader reader, String fromM, String toM) {
-		return (classMap, fieldMap, methodMap) -> {
+		return createInternalMappingProvider(reader, fromM, toM);
+	}
+
+	private static MappingProvider createInternalMappingProvider(final BufferedReader reader, String fromM, String toM) {
+		return (classMap, fieldMap, methodMap, lineMap) -> {
 			try {
-				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap);
+				readInternal(reader, fromM, toM, classMap, fieldMap, methodMap, lineMap);
 			} catch (IOException e) {
 				throw new RuntimeException(e);
 			}
@@ -108,34 +193,61 @@ public final class TinyUtils {
 		};
 	}
 
-	private static void readInternal(BufferedReader reader, String fromM, String toM, Map<String, String> classMap, Map<String, String> fieldMap, Map<String, String> methodMap) throws IOException {
+	private static void readInternal(BufferedReader reader, String fromM, String toM, Map<String, String> classMap, Map<String, String> fieldMap, Map<String, String> methodMap, Map<String, String[]> lineMap) throws IOException {
 		TinyUtils.read(reader, fromM, toM, (classFrom, classTo) -> {
 			classMap.put(classFrom, classTo);
 		}, (fieldFrom, nameTo) -> {
 			fieldMap.put(fieldFrom.owner + "/" + MemberInstance.getFieldId(fieldFrom.name, fieldFrom.desc), nameTo);
 		}, (methodFrom, nameTo) -> {
 			methodMap.put(methodFrom.owner + "/" + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), nameTo);
+		}, (methodFrom, paramNames) -> {
+			lineMap.put(methodFrom.owner + '/' + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), paramNames);
 		});
 	}
 
+	@Deprecated
 	public static void read(BufferedReader reader, String from, String to,
 			BiConsumer<String, String> classMappingConsumer,
 			BiConsumer<Mapping, String> fieldMappingConsumer,
 			BiConsumer<Mapping, String> methodMappingConsumer)
 					throws IOException {
-		String[] header = reader.readLine().split("\t");
-		if (header.length <= 1
-				|| !header[0].equals("v1")) {
+		read(reader, from, to, classMappingConsumer, fieldMappingConsumer, methodMappingConsumer, (mapping, params) -> {});
+	}
+
+	public static void read(BufferedReader reader, String from, String to,
+			BiConsumer<String, String> classMappingConsumer,
+			BiConsumer<Mapping, String> fieldMappingConsumer,
+			BiConsumer<Mapping, String> methodMappingConsumer,
+			BiConsumer<Mapping, String[]> lineMappingConsumer) throws IOException {
+		String headerLine = reader.readLine();
+
+		if (headerLine == null) {
+			throw new EOFException();
+		} else if (headerLine.startsWith("v1\t")) {
+			String[] header = headerLine.split("\t");
+			if (header.length <= 1 || !header[0].equals("v1")) {
+				throw new IOException("Invalid mapping version!");
+			}
+
+			List<String> headerList = Arrays.asList(header);
+			int fromIndex = headerList.indexOf(from) - 1;
+			int toIndex = headerList.indexOf(to) - 1;
+
+			if (fromIndex < 0) throw new IOException("Could not find mapping '" + from + "'!");
+			if (toIndex < 0) throw new IOException("Could not find mapping '" + to + "'!");
+
+			readV1(reader, fromIndex, toIndex, classMappingConsumer, fieldMappingConsumer, methodMappingConsumer);
+		} else if (headerLine.startsWith("tiny\t2\t")) {
+			throw new UnsupportedOperationException("Tiny V2 support coming soon");
+		} else {
 			throw new IOException("Invalid mapping version!");
 		}
+	}
 
-		List<String> headerList = Arrays.asList(header);
-		int fromIndex = headerList.indexOf(from) - 1;
-		int toIndex = headerList.indexOf(to) - 1;
-
-		if (fromIndex < 0) throw new IOException("Could not find mapping '" + from + "'!");
-		if (toIndex < 0) throw new IOException("Could not find mapping '" + to + "'!");
-
+	private static void readV1(BufferedReader reader, int fromIndex, int toIndex,
+			BiConsumer<String, String> classMappingConsumer,
+			BiConsumer<Mapping, String> fieldMappingConsumer,
+			BiConsumer<Mapping, String> methodMappingConsumer) throws IOException {
 		Map<String, String> obfFrom = new HashMap<>();
 		List<String[]> linesStageTwo = new ArrayList<>();
 
