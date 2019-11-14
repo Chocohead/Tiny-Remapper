@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.UnaryOperator;
 import java.util.zip.GZIPInputStream;
 
 import org.objectweb.asm.commons.Remapper;
@@ -269,19 +270,22 @@ public final class TinyUtils {
 
 		for (String[] splitLine : linesStageTwo) {
 			String type = splitLine[0];
-			BiConsumer<Mapping, String> consumer;
 
+			BiConsumer<Mapping, String> consumer;
+			UnaryOperator<String> descFixer;
 			if ("FIELD".equals(type)) {
 				consumer = fieldMappingConsumer;
+				descFixer = descObfFrom::mapDesc;
 			} else if ("METHOD".equals(type)) {
 				consumer = methodMappingConsumer;
+				descFixer = descObfFrom::mapMethodDesc;
 			} else {
 				continue;
 			}
 
 			String owner = obfFrom.getOrDefault(splitLine[1], splitLine[1]);
 			String name = splitLine[3 + fromIndex];
-			String desc = descObfFrom.mapDesc(splitLine[2]);
+			String desc = descFixer.apply(splitLine[2]);
 
 			Mapping mapping = new Mapping(owner, name, desc);
 			String nameTo = splitLine[3 + toIndex];
