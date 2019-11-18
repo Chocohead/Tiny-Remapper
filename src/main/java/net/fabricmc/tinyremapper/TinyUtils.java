@@ -68,7 +68,7 @@ public final class TinyUtils {
 	}
 
 	private static class SimpleClassMapper extends Remapper {
-		final Map<String, String> classMap;
+		private final Map<String, String> classMap;
 
 		public SimpleClassMapper(Map<String, String> map) {
 			this.classMap = map;
@@ -250,7 +250,7 @@ public final class TinyUtils {
 			BiConsumer<String, String> classMappingConsumer,
 			BiConsumer<Mapping, String> fieldMappingConsumer,
 			BiConsumer<Mapping, String> methodMappingConsumer) throws IOException {
-		Map<String, String> obfFrom = new HashMap<>();
+		Map<String, String> obfFrom = fromIndex != 0 ? new HashMap<>() : null;
 		List<String[]> linesStageTwo = new ArrayList<>();
 
 		String line;
@@ -259,15 +259,18 @@ public final class TinyUtils {
 
 			if (splitLine.length >= 2) {
 				if ("CLASS".equals(splitLine[0])) {
-					classMappingConsumer.accept(splitLine[1 + fromIndex], splitLine[1 + toIndex]);
-					obfFrom.put(splitLine[1], splitLine[1 + fromIndex]);
+					String mappedName = splitLine[1 + toIndex];
+					if (!mappedName.isEmpty()) {
+						classMappingConsumer.accept(splitLine[1 + fromIndex], mappedName);
+						if (obfFrom != null) obfFrom.put(splitLine[1], splitLine[1 + fromIndex]);
+					}
 				} else {
 					linesStageTwo.add(splitLine);
 				}
 			}
 		}
 
-		SimpleClassMapper descObfFrom = new SimpleClassMapper(obfFrom);
+		SimpleClassMapper descObfFrom = new SimpleClassMapper(obfFrom != null ? obfFrom : Collections.emptyMap());
 
 		for (String[] splitLine : linesStageTwo) {
 			String type = splitLine[0];
@@ -284,14 +287,14 @@ public final class TinyUtils {
 				continue;
 			}
 
-			String owner = obfFrom.getOrDefault(splitLine[1], splitLine[1]);
+			String owner = descObfFrom.map(splitLine[1]);
 			String name = splitLine[3 + fromIndex];
 			String desc = descFixer.apply(splitLine[2]);
 
 			Mapping mapping = new Mapping(owner, name, desc);
 			String nameTo = splitLine[3 + toIndex];
 
-			consumer.accept(mapping, nameTo);
+			if (!nameTo.isEmpty()) consumer.accept(mapping, nameTo);
 		}
 	}
 
