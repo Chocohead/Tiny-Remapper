@@ -335,13 +335,23 @@ public class TinyRemapper {
 		if (testSet.size() != classMap.size()) {
 			System.out.println("non-unique class target name mappings:");
 
+			Map<String, Set<String>> duplicates = new HashMap<>();
 			for (Map.Entry<String, String> e : classMap.entrySet()) {
-				if (!testSet.remove(e.getValue())) {
-					System.out.printf("  %s -> %s%n", e.getKey(), e.getValue());
+				duplicates.computeIfAbsent(e.getValue(), k -> new HashSet<>()).add(e.getKey());
+			}
+			assert duplicates.size() == testSet.size();
+
+			int number = 0;
+			for (Map.Entry<String, Set<String>> entry : duplicates.entrySet()) {
+				assert Collections.frequency(classMap.values(), entry.getKey()) == entry.getValue().size();
+
+				if (entry.getValue().size() > 1) {
+					number++;
+					System.out.printf("  %s -> %s%n", entry.getValue(), entry.getKey());
 				}
 			}
 
-			throw new RuntimeException("duplicate class target name mappings detected");
+			throw new RuntimeException(number + " duplicate class target name mapping(s) detected");
 		}
 	}
 
