@@ -165,7 +165,7 @@ public final class TinyUtils {
 				throw new RuntimeException(e);
 			}
 
-			System.out.printf("%s: %d classes, %d methods, %d fields%n", mappings.getFileName().toString(), classMap.size(), methodMap.size(), fieldMap.size());
+			//System.out.printf("%s: %d classes, %d methods, %d fields%n", mappings.getFileName().toString(), classMap.size(), methodMap.size(), fieldMap.size());
 		};
 	}
 
@@ -191,7 +191,7 @@ public final class TinyUtils {
 				throw new RuntimeException(e);
 			}
 
-			System.out.printf("%d classes, %d methods, %d fields%n", classMap.size(), methodMap.size(), fieldMap.size());
+			//System.out.printf("%d classes, %d methods, %d fields%n", classMap.size(), methodMap.size(), fieldMap.size());
 		};
 	}
 
@@ -199,9 +199,9 @@ public final class TinyUtils {
 		TinyUtils.read(reader, fromM, toM, (classFrom, classTo) -> {
 			classMap.put(classFrom, classTo);
 		}, (fieldFrom, nameTo) -> {
-			fieldMap.put(fieldFrom.owner + "/" + MemberInstance.getFieldId(fieldFrom.name, fieldFrom.desc), nameTo);
+			fieldMap.put(fieldFrom.owner + '/' + MemberInstance.getFieldId(fieldFrom.name, fieldFrom.desc, false), nameTo);
 		}, (methodFrom, nameTo) -> {
-			methodMap.put(methodFrom.owner + "/" + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), nameTo);
+			methodMap.put(methodFrom.owner + '/' + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), nameTo);
 		}, (methodFrom, paramNames) -> {
 			localMap.put(methodFrom.owner + '/' + MemberInstance.getMethodId(methodFrom.name, methodFrom.desc), paramNames);
 		});
@@ -256,17 +256,17 @@ public final class TinyUtils {
 		String line;
 		while ((line = reader.readLine()) != null) {
 			String[] splitLine = line.split("\t");
+			if (splitLine.length < 2) continue;
 
-			if (splitLine.length >= 2) {
-				if ("CLASS".equals(splitLine[0])) {
-					String mappedName = splitLine[1 + toIndex];
-					if (!mappedName.isEmpty()) {
-						classMappingConsumer.accept(splitLine[1 + fromIndex], mappedName);
-						if (obfFrom != null) obfFrom.put(splitLine[1], splitLine[1 + fromIndex]);
-					}
-				} else {
-					linesStageTwo.add(splitLine);
+			assert splitLine.length >= 2;
+			if ("CLASS".equals(splitLine[0])) {
+				String mappedName = splitLine[1 + toIndex];
+				if (!mappedName.isEmpty()) {
+					classMappingConsumer.accept(splitLine[1 + fromIndex], mappedName);
+					if (obfFrom != null) obfFrom.put(splitLine[1], splitLine[1 + fromIndex]);
 				}
+			} else {
+				linesStageTwo.add(splitLine);
 			}
 		}
 

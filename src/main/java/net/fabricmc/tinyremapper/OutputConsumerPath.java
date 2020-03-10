@@ -17,6 +17,7 @@
 
 package net.fabricmc.tinyremapper;
 
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.Closeable;
@@ -37,26 +38,72 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 
 public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable {
+	public static class Builder {
+		public Builder(Path destination) {
+			this.destination = destination;
+		}
+
+		public Builder assumeArchive(boolean value) {
+			this.assumeArchive = value;
+			return this;
+		}
+
+		public Builder keepFsOpen(boolean value) {
+			this.keepFsOpen = value;
+			return this;
+		}
+
+		public Builder threadSyncWrites(boolean value) {
+			this.threadSyncWrites = value;
+			return this;
+		}
+
+		public Builder filter(Predicate<String> classNameFilter) {
+			this.classNameFilter = classNameFilter;
+			return this;
+		}
+
+		public OutputConsumerPath build() throws IOException {
+			boolean isJar = assumeArchive == null || Files.exists(destination) ? isJar(destination) : assumeArchive;
+
+			return new OutputConsumerPath(destination, isJar, keepFsOpen, threadSyncWrites, classNameFilter);
+		}
+
+		private final Path destination;
+		private Boolean assumeArchive;
+		private boolean keepFsOpen = false;
+		private boolean threadSyncWrites = false;
+		private Predicate<String> classNameFilter;
+	}
+
 	public OutputConsumerPath(Path dstFile) throws IOException {
-		if (!isJar(dstFile)) {
-			Files.createDirectories(dstFile);
+		this(dstFile, true);
+	}
 
-			dstDir = dstFile;
-			closeFs = false;
-			isJar = false;
+	public OutputConsumerPath(Path dstDir, boolean closeFs) throws IOException {
+		this(dstDir, isJar(dstDir), !closeFs, false, null);
+	}
+
+	private OutputConsumerPath(Path destination, boolean isJar, boolean keepFsOpen, boolean threadSyncWrites,
+			Predicate<String> classNameFilter) throws IOException {
+		if (!isJar) {
+			Files.createDirectories(destination);
 		} else {
-			createParentDirs(dstFile);
-
+			createParentDirs(destination);
 			URI uri;
 
 			try {
-				uri = new URI("jar:"+dstFile.toUri().toString());
+				uri = new URI("jar:"+destination.toUri().toString());
 			} catch (URISyntaxException e) {
 				throw new RuntimeException(e);
 			}
@@ -64,16 +111,14 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 			Map<String, String> env = new HashMap<>();
 			env.put("create", "true");
 
-			dstDir = FileSystems.newFileSystem(uri, env).getPath("/");
-			closeFs = true;
-			isJar = true;
+			destination = FileSystems.newFileSystem(uri, env).getPath("/");
 		}
-	}
 
-	public OutputConsumerPath(Path dstDir, boolean closeFs) {
-		this.dstDir = dstDir;
-		this.closeFs = closeFs;
-		isJar = dstDir.getFileSystem().provider().getScheme().equals("jar");
+		this.dstDir = destination;
+		this.closeFs = isJar && !keepFsOpen;
+		this.isJarFs = isJar;
+		this.lock = threadSyncWrites ? new ReentrantLock() : null;
+		this.classNameFilter = classNameFilter;
 	}
 
 	public void addNonClassFile(Path srcFile, String first, String... more) throws IOException {
@@ -107,6 +152,9 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 
 	public void addNonClassFiles(Path srcDir, NonClassCopyMode copyMode, TinyRemapper remapper, boolean closeFs) throws IOException {
 		try {
+			if (lock != null) lock.lock();
+			if (closed) throw new IllegalStateException("consumer already closed");
+
 			Files.walkFileTree(srcDir, new SimpleFileVisitor<Path>() {
 				@Override
 				public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
@@ -114,7 +162,7 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 
 					if (!fileName.endsWith(classSuffix)) {
 						Path relativePath = srcDir.relativize(file);
-						Path dstFile = dstDir.resolve(relativePath);
+						Path dstFile = dstDir.resolve(relativePath.toString()); // toString bypasses resolve requiring identical fs providers
 
 						if (copyMode == NonClassCopyMode.UNCHANGED
 								|| !relativePath.startsWith("META-INF")
@@ -133,7 +181,7 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 
 								fixManifest(manifest, remapper);
 
-								try (OutputStream os = Files.newOutputStream(dstFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+								try (OutputStream os = new BufferedOutputStream(Files.newOutputStream(dstFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE))) {
 									manifest.write(os);
 								}
 							} else if (remapper != null && relativePath.getNameCount() == 3 && relativePath.getName(1).toString().equals("services")) {
@@ -153,6 +201,8 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 				}
 			});
 		} finally {
+			if (lock != null) lock.unlock();
+
 			if (closeFs) srcDir.getFileSystem().close();
 		}
 	}
@@ -240,10 +290,15 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 
 	@Override
 	public void accept(String clsName, byte[] data) {
+		if (classNameFilter != null && !classNameFilter.test(clsName)) return;
+
 		try {
+			if (lock != null) lock.lock();
+			if (closed) throw new IllegalStateException("consumer already closed");
+
 			Path dstFile = dstDir.resolve(clsName + classSuffix);
 
-			if (isJar && Files.exists(dstFile)) {
+			if (isJarFs && Files.exists(dstFile)) {
 				if (Files.isDirectory(dstFile)) throw new FileAlreadyExistsException("dst file "+dstFile+" is a directory");
 
 				Files.delete(dstFile); // workaround for sporadic FileAlreadyExistsException (Files.write should overwrite, jdk bug?)
@@ -253,12 +308,26 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 			Files.write(dstFile, data);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
+		} finally {
+			if (lock != null) lock.unlock();
 		}
 	}
 
 	@Override
 	public void close() throws IOException {
-		if (closeFs) dstDir.getFileSystem().close();
+		if (closed) return;
+
+		try {
+			if (lock != null) lock.lock();
+
+			if (closeFs) {
+				dstDir.getFileSystem().close();
+			}
+
+			closed = true;
+		} finally {
+			if (lock != null) lock.unlock();
+		}
 	}
 
 	private static boolean isJar(Path path) {
@@ -266,7 +335,7 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 			return !Files.isDirectory(path);
 		}
 
-		String name = path.getFileName().toString();
+		String name = path.getFileName().toString().toLowerCase(Locale.ENGLISH);
 
 		return name.endsWith(".jar") || name.endsWith(".zip");
 	}
@@ -280,5 +349,8 @@ public class OutputConsumerPath implements BiConsumer<String, byte[]>, Closeable
 
 	private final Path dstDir;
 	private final boolean closeFs;
-	private final boolean isJar;
+	private final boolean isJarFs;
+	private final Lock lock;
+	private final Predicate<String> classNameFilter;
+	private boolean closed;
 }

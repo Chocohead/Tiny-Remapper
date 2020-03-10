@@ -17,14 +17,17 @@
 
 package net.fabricmc.tinyremapper;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
+
+import javax.lang.model.SourceVersion;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.Handle;
-import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -34,14 +37,42 @@ import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.FieldRemapper;
 import org.objectweb.asm.commons.MethodRemapper;
 import org.objectweb.asm.commons.Remapper;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LocalVariableNode;
+import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.ParameterNode;
+
+import net.fabricmc.tinyremapper.MemberInstance.MemberType;
 
 class AsmClassRemapper extends ClassRemapper {
-
-	private final boolean renameInvalidLocals;
-
-	public AsmClassRemapper(ClassVisitor cv, AsmRemapper remapper, boolean renameInvalidLocals) {
+	public AsmClassRemapper(ClassVisitor cv, AsmRemapper remapper, boolean checkPackageAccess, boolean skipLocalMapping, boolean renameInvalidLocals) {
 		super(cv, remapper);
+
+		this.checkPackageAccess = checkPackageAccess;
+		this.skipLocalMapping = skipLocalMapping;
 		this.renameInvalidLocals = renameInvalidLocals;
+	}
+
+	@Override
+	public void visitSource(String source, String debug) {
+		String mappedClsName = remapper.map(className);
+		// strip package
+		int start = mappedClsName.lastIndexOf('/') + 1;
+		// strip inner classes
+		int end = mappedClsName.indexOf('$');
+		if (end <= 0) end = mappedClsName.length(); // require at least 1 character for the outer class
+
+		super.visitSource(mappedClsName.substring(start, end).concat(".java"), debug);
+	}
+
+	@Override
+	public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+		if (!skipLocalMapping || renameInvalidLocals) {
+			methodNode = new MethodNode(api, access, name, descriptor, signature, exceptions);
+		}
+
+		return super.visitMethod(access, name, descriptor, signature, exceptions);
 	}
 
 	@Override
@@ -50,18 +81,28 @@ class AsmClassRemapper extends ClassRemapper {
 	}
 
 	@Override
-	public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
-		String remappedDescriptor = remapper.mapMethodDesc(descriptor);
-		String mappedName = remapper.mapMethodName(className, name, descriptor);
-		MethodVisitor methodVisitor = cv.visitMethod(access, mappedName, remappedDescriptor, remapper.mapSignature(signature, false), exceptions == null ? null : remapper.mapTypes(exceptions));
-		String[] locals = ((AsmRemapper) remapper).getLocalVariables(className, name, descriptor);
-		return new AsmMethodRemapper(methodVisitor, remapper, className, locals, renameInvalidLocals);
+	protected MethodVisitor createMethodRemapper(MethodVisitor mv) {
+		return new AsmMethodRemapper(mv, remapper, className, methodNode, checkPackageAccess, skipLocalMapping, renameInvalidLocals);
 	}
 
 	@Override
-	protected MethodVisitor createMethodRemapper(MethodVisitor methodVisitor) {
-		throw new UnsupportedOperationException("Can't remap locals without knowing the method they're for");
+	public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+		return createAsmAnnotationRemapper(descriptor, super.visitAnnotation(descriptor, visible), remapper);
 	}
+
+	@Override
+	public AnnotationVisitor visitTypeAnnotation(int typeRef, TypePath typePath, String descriptor, boolean visible) {
+		return createAsmAnnotationRemapper(descriptor, super.visitTypeAnnotation(typeRef, typePath, descriptor, visible), remapper);
+	}
+
+	public static AnnotationRemapper createAsmAnnotationRemapper(String desc, AnnotationVisitor annotationVisitor, Remapper remapper) {
+		return annotationVisitor == null ? null : new AsmAnnotationRemapper(annotationVisitor, remapper, desc);
+	}
+
+	private final boolean checkPackageAccess;
+	private final boolean skipLocalMapping;
+	private final boolean renameInvalidLocals;
+	private MethodNode methodNode;
 
 	private static class AsmFieldRemapper extends FieldRemapper {
 		public AsmFieldRemapper(FieldVisitor fieldVisitor, Remapper remapper) {
@@ -80,17 +121,20 @@ class AsmClassRemapper extends ClassRemapper {
 	}
 
 	private static class AsmMethodRemapper extends MethodRemapper {
-		public AsmMethodRemapper(MethodVisitor methodVisitor, Remapper remapper, String className, String[] locals, boolean renameInvalidLocals) {
-			super(methodVisitor, remapper);
+		public AsmMethodRemapper(MethodVisitor methodVisitor, Remapper remapper, String owner, MethodNode methodNode, boolean checkPackageAccess, boolean skipLocalMapping, boolean renameInvalidLocals) {
+			super(methodNode != null ? methodNode : methodVisitor, remapper);
 
-			this.className = className;
-			remappedLocals = locals == null ? new String[0] : locals;
+			this.owner = owner;
+			this.methodNode = methodNode;
+			this.output = methodVisitor;
+			this.checkPackageAccess = checkPackageAccess;
+			this.skipLocalMapping = skipLocalMapping;
 			this.renameInvalidLocals = renameInvalidLocals;
 		}
 
 		@Override
 		public AnnotationVisitor visitAnnotationDefault() {
-			return AsmClassRemapper.createAsmAnnotationRemapper(Type.getObjectType(className).getDescriptor(), super.visitAnnotationDefault(), remapper);
+			return AsmClassRemapper.createAsmAnnotationRemapper(Type.getObjectType(owner).getDescriptor(), super.visitAnnotationDefault(), remapper);
 		}
 
 		@Override
@@ -109,59 +153,25 @@ class AsmClassRemapper extends ClassRemapper {
 		}
 
 		@Override
-		public void visitLocalVariable(String name, String descriptor, String signature, Label start, Label end, int index) {
-			if (mv == null) return;
-
-			descriptor = remapper.mapDesc(descriptor);
-
-			String mappedName = remappedLocals.length > index ? remappedLocals[index] : null;
-			if (mappedName != null) {
-				name = mappedName;
-			} else if (renameInvalidLocals && !isValidJavaIdentifier(name)) {
-				Type type = Type.getType(descriptor);
-				boolean plural = false;
-
-				if (type.getSort() == Type.ARRAY) {
-					plural = true;
-					type = type.getElementType();
-				}
-
-				String varName = type.getClassName();
-				int dotIdx = varName.lastIndexOf('.');
-				if (dotIdx != -1) varName = varName.substring(dotIdx + 1);
-
-				varName = Character.toLowerCase(varName.charAt(0)) + varName.substring(1);
-				if (plural) varName += "s";
-				name = varName + "_" + nameCounts.compute(varName, (k, v) -> (v == null) ? 1 : v + 1);
+		public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
+			if (checkPackageAccess) {
+				((AsmRemapper) remapper).checkPackageAccess(this.owner, owner, name, descriptor, MemberType.FIELD);
 			}
 
-			mv.visitLocalVariable(
-					name,
-					descriptor,
-					remapper.mapSignature(signature, true),
-					start,
-					end,
-					index);
+			super.visitFieldInsn(opcode, owner, name, descriptor);
 		}
 
-		private static boolean isValidJavaIdentifier(String s) {
-			if (s.isEmpty()) return false;
-
-			int cp = s.codePointAt(0);
-			if (!Character.isJavaIdentifierStart(cp)) return false;
-
-			for (int i = Character.charCount(cp), max = s.length(); i < max; i += Character.charCount(cp)) {
-				cp = s.codePointAt(i);
-				if (!Character.isJavaIdentifierPart(cp)) return false;
+		@Override
+		public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
+			if (checkPackageAccess) {
+				((AsmRemapper) remapper).checkPackageAccess(this.owner, owner, name, descriptor, MemberType.METHOD);
 			}
 
-			return true;
+			super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
 		}
 
 		@Override
 		public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
-			if (mv == null) return;
-
 			Handle implemented = getLambdaImplementedMethod(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
 
 			if (implemented != null) {
@@ -174,7 +184,7 @@ class AsmClassRemapper extends ClassRemapper {
 				bootstrapMethodArguments[i] = remapper.mapValue(bootstrapMethodArguments[i]);
 			}
 
-			mv.visitInvokeDynamicInsn(
+			mv.visitInvokeDynamicInsn( // bypass remapper
 					name,
 					remapper.mapMethodDesc(descriptor), (Handle) remapper.mapValue(bootstrapMethodHandle),
 					bootstrapMethodArguments);
@@ -201,24 +211,330 @@ class AsmClassRemapper extends ClassRemapper {
 					&& !bsm.isInterface();
 		}
 
-		private final String className;
-		private final String[] remappedLocals;
+		@Override
+		public void visitEnd() {
+			if (methodNode != null) {
+				if (!skipLocalMapping
+						|| renameInvalidLocals && (methodNode.localVariables != null && !methodNode.localVariables.isEmpty() || methodNode.parameters != null && !methodNode.parameters.isEmpty())) {
+					processLocals();
+				}
+
+				methodNode.visitEnd();
+				methodNode.accept(output);
+			} else {
+				super.visitEnd();
+			}
+		}
+
+		private void processLocals() {
+			final boolean isStatic = (methodNode.access & Opcodes.ACC_STATIC) != 0;
+			final Type[] argTypes = Type.getArgumentTypes(methodNode.desc);
+			final int argLvSize = getLvIndex(argTypes.length, isStatic, argTypes);
+			final String[] args = new String[argTypes.length];
+
+			// grab arg names from parameters
+			if (methodNode.parameters != null && methodNode.parameters.size() == args.length) {
+				for (int i = 0; i < args.length; i++) {
+					args[i] = methodNode.parameters.get(i).name;
+				}
+			} else {
+				assert methodNode.parameters == null;
+			}
+
+			// grab arg names from lvs, fix "this", remap vars
+			if (methodNode.localVariables != null) {
+				for (int i = 0; i < methodNode.localVariables.size(); i++) {
+					LocalVariableNode lv = methodNode.localVariables.get(i);
+
+					if (!isStatic && lv.index == 0) { // this ref
+						lv.name = "this";
+					} else if (lv.index < argLvSize) { // arg
+						int asmIndex = getAsmIndex(lv.index, isStatic, argTypes);
+						String existingName = args[asmIndex];
+
+						if (existingName == null || !isValidJavaIdentifier(existingName) && isValidJavaIdentifier(lv.name)) { // replace if missing or better
+							args[asmIndex] = lv.name;
+						}
+
+						// remap+fix later
+					} else { // var
+						if (!skipLocalMapping) {
+							int startOpIdx = 0;
+							AbstractInsnNode start = lv.start;
+
+							while ((start = start.getPrevious()) != null) {
+								if (start.getOpcode() >= 0) startOpIdx++;
+							}
+
+							lv.name = ((AsmRemapper) remapper).mapMethodVar(owner, methodNode.name, methodNode.desc, lv.index, startOpIdx, i, lv.name);
+
+							if (renameInvalidLocals && isValidJavaIdentifier(lv.name)) { // block valid name from generation
+								nameCounts.putIfAbsent(lv.name, 1);
+							}
+						}
+
+						// fix later
+					}
+				}
+			}
+
+			// remap args
+			if (!skipLocalMapping) {
+				for (int i = 0; i < args.length; i++) {
+					args[i] = ((AsmRemapper) remapper).mapMethodArg(owner, methodNode.name, methodNode.desc, getLvIndex(i, isStatic, argTypes), args[i]);
+
+					if (renameInvalidLocals && isValidJavaIdentifier(args[i])) { // block valid name from generation
+						nameCounts.putIfAbsent(args[i], 1);
+					}
+				}
+			}
+
+			// fix args
+			if (renameInvalidLocals) {
+				for (int i = 0; i < args.length; i++) {
+					if (!isValidJavaIdentifier(args[i])) {
+						args[i] = getNameFromType(remapper.mapDesc(argTypes[i].getDescriptor()), true);
+					}
+				}
+			}
+
+			boolean hasAnyArgs = false;
+
+			for (String arg : args) {
+				if (arg != null) {
+					hasAnyArgs = true;
+					break;
+				}
+			}
+
+			// update lvs, fix vars
+			if (methodNode.localVariables != null
+					|| methodNode.parameters == null && (methodNode.access & Opcodes.ACC_ABSTRACT) == 0 && hasAnyArgs) { // avoid creating parameters if possible (non-abstract), create lvs instead
+				if (methodNode.localVariables == null) {
+					methodNode.localVariables = new ArrayList<>();
+				}
+
+				boolean[] argsWritten = new boolean[args.length];
+
+				for (int i = 0; i < methodNode.localVariables.size(); i++) {
+					LocalVariableNode lv = methodNode.localVariables.get(i);
+
+					if (!isStatic && lv.index == 0) { // this ref
+						// nothing
+					} else if (lv.index < argLvSize) { // arg
+						int asmIndex = getAsmIndex(lv.index, isStatic, argTypes);
+						lv.name = args[asmIndex];
+						argsWritten[asmIndex] = true;
+					} else { // var
+						if (renameInvalidLocals && !isValidJavaIdentifier(lv.name)) {
+							lv.name = getNameFromType(lv.desc, false);
+						}
+					}
+				}
+
+				LabelNode start = null;
+				LabelNode end = null;
+
+				for (int i = 0; i < args.length; i++) {
+					if (!argsWritten[i] && args[i] != null) {
+						if (start == null) { // lazy initialize start + end by finding the first and last label node
+							for (Iterator<AbstractInsnNode> it = methodNode.instructions.iterator(); it.hasNext(); ) {
+								AbstractInsnNode ain = it.next();
+
+								if (ain.getType() == AbstractInsnNode.LABEL) {
+									LabelNode label = (LabelNode) ain;
+									if (start == null) start = label;
+									end = label;
+								}
+							}
+
+							if (start == null) { // no labels -> can't create lvs
+								assert false;
+								break;
+							}
+						}
+
+						methodNode.localVariables.add(new LocalVariableNode(args[i], remapper.mapDesc(argTypes[i].getDescriptor()), null, start, end, getLvIndex(i, isStatic, argTypes)));
+					}
+				}
+			}
+
+			// update parameters
+			if (methodNode.parameters != null
+					|| (methodNode.access & Opcodes.ACC_ABSTRACT) != 0 && hasAnyArgs) {
+				if (methodNode.parameters == null) {
+					methodNode.parameters = new ArrayList<>(args.length);
+				}
+
+				while (methodNode.parameters.size() < args.length) {
+					methodNode.parameters.add(new ParameterNode(null, 0));
+				}
+
+				for (int i = 0; i < args.length; i++) {
+					methodNode.parameters.get(i).name = args[i];
+				}
+			}
+		}
+
+		private static int getLvIndex(int asmIndex, boolean isStatic, Type[] argTypes) {
+			int ret = 0;
+
+			if (!isStatic) ret++;
+
+			for (int i = 0; i < asmIndex; i++) {
+				ret += argTypes[i].getSize();
+			}
+
+			return ret;
+		}
+
+		private static int getAsmIndex(int lvIndex, boolean isStatic, Type[] argTypes) {
+			if (!isStatic) lvIndex--;
+
+			for (int i = 0; i < argTypes.length; i++) {
+				if (lvIndex == 0) return i;
+				lvIndex -= argTypes[i].getSize();
+			}
+
+			return -1;
+		}
+
+		private String getNameFromType(String type, boolean isArg) {
+			boolean plural = false;
+
+			if (type.charAt(0) == '[') {
+				plural = true;
+				type = type.substring(type.lastIndexOf('[') + 1);
+			}
+
+			boolean incrementLetter = true;
+			String varName;
+
+			switch (type.charAt(0)) {
+			case 'B': varName = "b"; break;
+			case 'C': varName = "c"; break;
+			case 'D': varName = "d"; break;
+			case 'F': varName = "f"; break;
+			case 'I': varName = "i"; break;
+			case 'J': varName = "l"; break;
+			case 'S': varName = "s"; break;
+			case 'Z':
+				varName = "bl";
+				incrementLetter = false;
+				break;
+			case 'L': {
+				// strip preceding packages and outer classes
+
+				int start = type.lastIndexOf('/') + 1;
+				int startDollar = type.lastIndexOf('$') + 1;
+
+				if (startDollar > start && startDollar < type.length() - 1) {
+					start = startDollar;
+				} else if (start == 0) {
+					start = 1;
+				}
+
+				// assemble, lowercase first char, apply plural s
+
+				char first = type.charAt(start);
+				char firstLc = Character.toLowerCase(first);
+
+				if (first == firstLc) { // type is already lower case, the var name would shade the type
+					varName = null;
+				} else {
+					varName = firstLc + type.substring(start + 1, type.length() - 1);
+				}
+
+				if (!isValidJavaIdentifier(varName)) {
+					varName = isArg ? "arg" : "lv"; // lv instead of var to avoid confusion with Java 10's var keyword
+				}
+
+				incrementLetter = false;
+				break;
+			}
+			default:
+				throw new IllegalStateException();
+			}
+
+			boolean hasPluralS = false;
+
+			if (plural) {
+				String pluralVarName = varName + 's';
+
+				// Appending 's' could make name invalid, e.g. "clas" -> "class" (keyword)
+				if (isValidJavaIdentifier(pluralVarName)) {
+					varName = pluralVarName;
+					hasPluralS = true;
+				}
+			}
+
+			if (incrementLetter) {
+				int index = -1;
+
+				while (nameCounts.putIfAbsent(varName, 1) != null || !isValidJavaIdentifier(varName)) {
+					if (index < 0) index = getNameIndex(varName, hasPluralS);
+
+					varName = getIndexName(++index, plural);
+				}
+
+				return varName;
+			} else {
+				int count = nameCounts.compute(varName, (k, v) -> (v == null) ? 1 : v + 1);
+
+				return count == 1 ? varName : varName.concat(Integer.toString(count));
+			}
+		}
+
+		private static int getNameIndex(String name, boolean plural) {
+			int ret = 0;
+
+			for (int i = 0, max = name.length() - (plural ? 1 : 0); i < max; i++) {
+				ret = ret * 26 + name.charAt(i) - 'a' + 1;
+			}
+
+			return ret - 1;
+		}
+
+		private static String getIndexName(int index, boolean plural) {
+			if (index < 26 && !plural) {
+				return singleCharStrings[index];
+			} else {
+				StringBuilder ret = new StringBuilder(2);
+
+				do {
+					int next = index / 26;
+					int cur = index - next * 26;
+					ret.append((char) ('a' + cur));
+					index = next - 1;
+				} while (index >= 0);
+
+				ret.reverse();
+
+				if (plural) ret.append('s');
+
+				return ret.toString();
+			}
+		}
+
+		private static boolean isValidJavaIdentifier(String s) {
+			if (s == null || s.isEmpty()) return false;
+			// TODO: Use SourceVersion.isKeyword(CharSequence, SourceVersion) in Java 9
+			//       to make it independent from JDK version
+			return SourceVersion.isIdentifier(s) && !SourceVersion.isKeyword(s);
+		}
+
+		private static final String[] singleCharStrings = {
+				"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+				"n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
+		};
+
+		private final String owner;
+		private final MethodNode methodNode;
+		private final MethodVisitor output;
 		private final Map<String, Integer> nameCounts = new HashMap<>();
+		private final boolean checkPackageAccess;
+		private final boolean skipLocalMapping;
 		private final boolean renameInvalidLocals;
-	}
-
-	@Override
-	public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
-		return createAsmAnnotationRemapper(descriptor, super.visitAnnotation(descriptor, visible), remapper);
-	}
-
-	@Override
-	public AnnotationVisitor visitTypeAnnotation(int typeRef, TypePath typePath, String descriptor, boolean visible) {
-		return createAsmAnnotationRemapper(descriptor, super.visitTypeAnnotation(typeRef, typePath, descriptor, visible), remapper);
-	}
-
-	public static AnnotationRemapper createAsmAnnotationRemapper(String desc, AnnotationVisitor annotationVisitor, Remapper remapper) {
-		return annotationVisitor == null ? null : new AsmAnnotationRemapper(annotationVisitor, remapper, desc);
 	}
 
 	private static class AsmAnnotationRemapper extends AnnotationRemapper {

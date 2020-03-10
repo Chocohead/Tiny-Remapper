@@ -31,11 +31,23 @@ public final class MemberInstance {
 	}
 
 	public String getId() {
-		return getId(type, name, desc);
+		return getId(type, name, desc, cls.context.ignoreFieldDesc);
+	}
+
+	public boolean isStatic() {
+		return (access & Opcodes.ACC_STATIC) != 0;
 	}
 
 	public boolean isVirtual() {
 		return type == MemberType.METHOD && (access & (Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE)) == 0;
+	}
+
+	public boolean isPublicOrPrivate() {
+		return (access & (Opcodes.ACC_PUBLIC | Opcodes.ACC_PRIVATE)) != 0;
+	}
+
+	public boolean isProtected() {
+		return (access & Opcodes.ACC_PROTECTED) != 0;
 	}
 
 	public String getNewName() {
@@ -54,22 +66,26 @@ public final class MemberInstance {
 		newName = name;
 	}
 
-	public static String getId(MemberType type, String name, String desc) {
-		return type == MemberType.METHOD ? getMethodId(name, desc) : getFieldId(name, desc);
+	public static String getId(MemberType type, String name, String desc, boolean ignoreFieldDesc) {
+		return type == MemberType.METHOD ? getMethodId(name, desc) : getFieldId(name, desc, ignoreFieldDesc);
 	}
 
 	public static String getMethodId(String name, String desc) {
 		return name.concat(desc);
 	}
 
-	public static String getFieldId(String name, String desc) {
-		return name+";;"+desc;
+	public static String getFieldId(String name, String desc, boolean ignoreDesc) {
+		return ignoreDesc ? name : name+";;"+desc;
 	}
 
-	public static String getNameFromId(MemberType type, String id) {
-		String separator = type == MemberType.METHOD ? "(" : ";;";
+	public static String getNameFromId(MemberType type, String id, boolean ignoreFieldDesc) {
+		if (ignoreFieldDesc && type == MemberType.FIELD) {
+			return id;
+		} else {
+			String separator = type == MemberType.METHOD ? "(" : ";;";
 
-		return id.substring(0, id.lastIndexOf(separator));
+			return id.substring(0, id.lastIndexOf(separator));
+		}
 	}
 
 	enum MemberType {

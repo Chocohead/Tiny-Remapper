@@ -35,13 +35,17 @@ public class Main {
 	public static void main(String[] rawArgs) {
 		List<String> args = new ArrayList<String>(rawArgs.length);
 		boolean reverse = false;
+		boolean ignoreFieldDesc = false;
 		boolean propagatePrivate = false;
 		boolean removeFrames = false;
 		Set<String> forcePropagation = Collections.emptySet();
 		File forcePropagationFile = null;
 		boolean ignoreConflicts = false;
+		boolean checkPackageAccess = false;
+		boolean fixPackageAccess = false;
 		boolean resolveMissing = false;
 		boolean rebuildSourceFilenames = false;
+		boolean skipLocalVariableMapping = false;
 		boolean renameInvalidLocals = false;
 		NonClassCopyMode ncCopyMode = NonClassCopyMode.FIX_META_INF;
 
@@ -57,6 +61,9 @@ public class Main {
 					System.err.println("WARNING: --reverse is not currently implemented!");
 					reverse = true;
 					break;
+				case "ignorefielddesc":
+					ignoreFieldDesc = true;
+					break;
 				case "forcepropagation":
 					forcePropagationFile = new File(arg.substring(valueSepPos + 1));
 					break;
@@ -69,11 +76,20 @@ public class Main {
 				case "ignoreconflicts":
 					ignoreConflicts = true;
 					break;
+				case "checkpackageaccess":
+					checkPackageAccess = true;
+					break;
+				case "fixpackageaccess":
+					fixPackageAccess = true;
+					break;
 				case "resolvemissing":
 					resolveMissing = true;
 					break;
 				case "rebuildsourcefilenames":
 					rebuildSourceFilenames = true;
+					break;
+				case "skiplocalvariablemapping":
+					skipLocalVariableMapping = true;
 					break;
 				case "renameinvalidlocals":
 					renameInvalidLocals = true;
@@ -158,16 +174,20 @@ public class Main {
 
 		TinyRemapper remapper = TinyRemapper.newRemapper()
 				.withMappings(TinyUtils.createTinyMappingProvider(mappings, fromM, toM))
+				.ignoreFieldDesc(ignoreFieldDesc)
 				.withForcedPropagation(forcePropagation)
 				.propagatePrivate(propagatePrivate)
 				.removeFrames(removeFrames)
 				.ignoreConflicts(ignoreConflicts)
+				.checkPackageAccess(checkPackageAccess)
+				.fixPackageAccess(fixPackageAccess)
 				.resolveMissing(resolveMissing)
 				.rebuildSourceFilenames(rebuildSourceFilenames)
+				.skipLocalVariableMapping(skipLocalVariableMapping)
 				.renameInvalidLocals(renameInvalidLocals)
 				.build();
 
-		try (OutputConsumerPath outputConsumer = new OutputConsumerPath(output)) {
+		try (OutputConsumerPath outputConsumer = new OutputConsumerPath.Builder(output).build()) {
 			outputConsumer.addNonClassFiles(input, ncCopyMode, remapper);
 
 			remapper.readInputs(input);
