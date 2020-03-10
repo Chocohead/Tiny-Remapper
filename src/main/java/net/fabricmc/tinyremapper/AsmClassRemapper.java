@@ -407,21 +407,41 @@ class AsmClassRemapper extends ClassRemapper {
 				type = type.substring(type.lastIndexOf('[') + 1);
 			}
 
-			boolean incrementLetter = true;
 			String varName;
-
 			switch (type.charAt(0)) {
 			case 'B': varName = "b"; break;
 			case 'C': varName = "c"; break;
 			case 'D': varName = "d"; break;
 			case 'F': varName = "f"; break;
-			case 'I': varName = "i"; break;
+			case 'I': {
+				//Strictly speaking is shouldn't ever fail the identifier check, but this covers any future revelations
+				varName = plural && isValidJavaIdentifier("is") ? "is" : "i";
+
+				int index = 1;
+				while (nameCounts.putIfAbsent(varName, 0) != null) {
+					switch (varName.charAt(0)) {
+					case 'i':
+						varName = 'j' + varName.substring(1);
+						break;
+
+					case 'j':
+						varName = 'k' + varName.substring(1);
+						break;
+
+					case 'k':
+						varName = 'i' + varName.substring(1) + index++;
+						break;
+
+					default:
+						throw new IllegalStateException("Unexpected varName: " + varName);
+					}
+				}
+
+				return varName;
+			}
 			case 'J': varName = "l"; break;
 			case 'S': varName = "s"; break;
-			case 'Z':
-				varName = "bl";
-				incrementLetter = false;
-				break;
+			case 'Z': varName = "flag"; break;
 			case 'L': {
 				// strip preceding packages and outer classes
 
@@ -449,14 +469,11 @@ class AsmClassRemapper extends ClassRemapper {
 					varName = isArg ? "arg" : "lv"; // lv instead of var to avoid confusion with Java 10's var keyword
 				}
 
-				incrementLetter = false;
 				break;
 			}
 			default:
-				throw new IllegalStateException();
+				throw new IllegalStateException("Unexpected type: " + type);
 			}
-
-			boolean hasPluralS = false;
 
 			if (plural) {
 				String pluralVarName = varName + 's';
@@ -464,56 +481,11 @@ class AsmClassRemapper extends ClassRemapper {
 				// Appending 's' could make name invalid, e.g. "clas" -> "class" (keyword)
 				if (isValidJavaIdentifier(pluralVarName)) {
 					varName = pluralVarName;
-					hasPluralS = true;
 				}
 			}
 
-			if (incrementLetter) {
-				int index = -1;
-
-				while (nameCounts.putIfAbsent(varName, 1) != null || !isValidJavaIdentifier(varName)) {
-					if (index < 0) index = getNameIndex(varName, hasPluralS);
-
-					varName = getIndexName(++index, plural);
-				}
-
-				return varName;
-			} else {
-				int count = nameCounts.compute(varName, (k, v) -> (v == null) ? 1 : v + 1);
-
-				return count == 1 ? varName : varName.concat(Integer.toString(count));
-			}
-		}
-
-		private static int getNameIndex(String name, boolean plural) {
-			int ret = 0;
-
-			for (int i = 0, max = name.length() - (plural ? 1 : 0); i < max; i++) {
-				ret = ret * 26 + name.charAt(i) - 'a' + 1;
-			}
-
-			return ret - 1;
-		}
-
-		private static String getIndexName(int index, boolean plural) {
-			if (index < 26 && !plural) {
-				return singleCharStrings[index];
-			} else {
-				StringBuilder ret = new StringBuilder(2);
-
-				do {
-					int next = index / 26;
-					int cur = index - next * 26;
-					ret.append((char) ('a' + cur));
-					index = next - 1;
-				} while (index >= 0);
-
-				ret.reverse();
-
-				if (plural) ret.append('s');
-
-				return ret.toString();
-			}
+			int count = nameCounts.compute(varName, (k, v) -> (v == null) ? 0 : v + 1);
+			return count == 0 ? varName : varName.concat(Integer.toString(count));
 		}
 
 		private static boolean isValidJavaIdentifier(String s) {
@@ -522,11 +494,6 @@ class AsmClassRemapper extends ClassRemapper {
 			//       to make it independent from JDK version
 			return SourceVersion.isIdentifier(s) && !SourceVersion.isKeyword(s);
 		}
-
-		private static final String[] singleCharStrings = {
-				"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-				"n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
-		};
 
 		private final String owner;
 		private final MethodNode methodNode;
