@@ -112,6 +112,15 @@ class AsmRemapper extends Remapper {
 		return originatingNewName != null ? originatingNewName : name;
 	}
 
+	public String suggestLocalName(String type, boolean plural) {
+		for (IMappingProvider provider : remapper.mappingProviders) {
+			String name = provider.suggestLocalName(type, plural);
+			if (name != null) return name;
+		}
+
+		return null;
+	}
+
 	public String mapMethodVar(String methodOwner, String methodName, String methodDesc, int lvIndex, int startOpIdx, int asmIndex, String name) {
 		return name; // TODO: implement
 	}

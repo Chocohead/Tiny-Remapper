@@ -26,4 +26,8 @@ public interface IMappingProvider {
 	default void load(Map<String, String> classMap, Map<String, String> fieldMap, Map<String, String> methodMap, Map<String, String[]> localMap) {
 		load(classMap, fieldMap, methodMap);
 	}
+
+	default String suggestLocalName(String type, boolean plural) {
+		return null;
+	}
 }

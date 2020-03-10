@@ -310,24 +310,22 @@ class AsmClassRemapper extends ClassRemapper {
 			// update lvs, fix vars
 			if (methodNode.localVariables != null
 					|| methodNode.parameters == null && (methodNode.access & Opcodes.ACC_ABSTRACT) == 0 && hasAnyArgs) { // avoid creating parameters if possible (non-abstract), create lvs instead
-				if (methodNode.localVariables == null) {
-					methodNode.localVariables = new ArrayList<>();
-				}
-
 				boolean[] argsWritten = new boolean[args.length];
 
-				for (int i = 0; i < methodNode.localVariables.size(); i++) {
-					LocalVariableNode lv = methodNode.localVariables.get(i);
-
-					if (!isStatic && lv.index == 0) { // this ref
-						// nothing
-					} else if (lv.index < argLvSize) { // arg
-						int asmIndex = getAsmIndex(lv.index, isStatic, argTypes);
-						lv.name = args[asmIndex];
-						argsWritten[asmIndex] = true;
-					} else { // var
-						if (renameInvalidLocals && !isValidJavaIdentifier(lv.name)) {
-							lv.name = getNameFromType(lv.desc, false);
+				if (methodNode.localVariables == null) {
+					methodNode.localVariables = new ArrayList<>();
+				} else {
+					for (LocalVariableNode lv : methodNode.localVariables) {
+						if (!isStatic && lv.index == 0) { // this ref
+							// nothing
+						} else if (lv.index < argLvSize) { // arg
+							int asmIndex = getAsmIndex(lv.index, isStatic, argTypes);
+							lv.name = args[asmIndex];
+							argsWritten[asmIndex] = true;
+						} else { // var
+							if (renameInvalidLocals && !isValidJavaIdentifier(lv.name)) {
+								lv.name = getNameFromType(lv.desc, false);
+							}
 						}
 					}
 				}
@@ -443,6 +441,10 @@ class AsmClassRemapper extends ClassRemapper {
 			case 'S': varName = "s"; break;
 			case 'Z': varName = "flag"; break;
 			case 'L': {
+				//First offer the remapper to suggest a name for the type
+				varName = ((AsmRemapper) remapper).suggestLocalName(type, plural);
+				if (isValidJavaIdentifier(varName)) break;
+
 				// strip preceding packages and outer classes
 
 				int start = type.lastIndexOf('/') + 1;
