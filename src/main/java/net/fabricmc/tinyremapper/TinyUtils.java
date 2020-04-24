@@ -263,8 +263,11 @@ public final class TinyUtils {
 			if ("CLASS".equals(splitLine[0])) {
 				String mappedName = splitLine[1 + toIndex];
 				if (!mappedName.isEmpty()) {
-					classMappingConsumer.accept(splitLine[1 + fromIndex], mappedName);
-					if (obfFrom != null) obfFrom.put(splitLine[1], splitLine[1 + fromIndex]);
+					String originName = splitLine[1 + fromIndex];
+					if (!originName.isEmpty()) {
+						classMappingConsumer.accept(originName, mappedName);
+						if (obfFrom != null) obfFrom.put(splitLine[1], originName);
+					}
 				}
 			} else {
 				linesStageTwo.add(splitLine);
@@ -290,6 +293,7 @@ public final class TinyUtils {
 
 			String owner = descObfFrom.map(splitLine[1]);
 			String name = splitLine[3 + fromIndex];
+			if (name.isEmpty()) continue; //No source name for the namespace
 			String desc = descFixer.apply(splitLine[2]);
 
 			Mapping mapping = new Mapping(owner, name, desc);
