@@ -238,7 +238,7 @@ public final class TinyUtils {
 			if (fromIndex < 0) throw new IOException("Could not find mapping '" + from + "'!");
 			if (toIndex < 0) throw new IOException("Could not find mapping '" + to + "'!");
 
-			readV1(reader, fromIndex, toIndex, classMappingConsumer, fieldMappingConsumer, methodMappingConsumer);
+			readV1(reader, fromIndex, toIndex, headerList.size() - 1, classMappingConsumer, fieldMappingConsumer, methodMappingConsumer);
 		} else if (headerLine.startsWith("tiny\t2\t")) {
 			readV2(reader, from, to, headerLine, classMappingConsumer, fieldMappingConsumer, methodMappingConsumer, localMappingConsumer);
 		} else {
@@ -246,7 +246,7 @@ public final class TinyUtils {
 		}
 	}
 
-	private static void readV1(BufferedReader reader, int fromIndex, int toIndex,
+	private static void readV1(BufferedReader reader, int fromIndex, int toIndex, int namespaces,
 			BiConsumer<String, String> classMappingConsumer,
 			BiConsumer<Mapping, String> fieldMappingConsumer,
 			BiConsumer<Mapping, String> methodMappingConsumer) throws IOException {
@@ -255,7 +255,8 @@ public final class TinyUtils {
 
 		String line;
 		while ((line = reader.readLine()) != null) {
-			String[] splitLine = line.split("\t");
+			if (line.trim().isEmpty()) continue;
+			String[] splitLine = splitAtTab(line, 0, namespaces + (line.charAt(0) == 'C' ? 1 : 2));
 			if (splitLine.length < 2) continue;
 
 			assert splitLine.length >= 2;
