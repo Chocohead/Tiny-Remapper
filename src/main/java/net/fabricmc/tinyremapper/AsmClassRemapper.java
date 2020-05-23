@@ -57,11 +57,11 @@ class AsmClassRemapper extends ClassRemapper {
 	@Override
 	public void visitSource(String source, String debug) {
 		String mappedClsName = remapper.map(className);
-		// strip package
-		int start = mappedClsName.lastIndexOf('/') + 1;
 		// strip inner classes
 		int end = mappedClsName.indexOf('$');
 		if (end <= 0) end = mappedClsName.length(); // require at least 1 character for the outer class
+		// strip package
+		int start = mappedClsName.lastIndexOf('/', end - 1) + 1; // avoid searching after $ to support weird nested class names like a$b/c
 
 		super.visitSource(mappedClsName.substring(start, end).concat(".java"), debug);
 	}
@@ -252,7 +252,8 @@ class AsmClassRemapper extends ClassRemapper {
 						int asmIndex = getAsmIndex(lv.index, isStatic, argTypes);
 						String existingName = args[asmIndex];
 
-						if (existingName == null || !isValidJavaIdentifier(existingName) && isValidJavaIdentifier(lv.name)) { // replace if missing or better
+						// replace if missing or better; don't check for keywords, will be renamed later
+						if (existingName == null || !isValidJavaIdentifier(existingName) && isValidJavaIdentifier(lv.name)) {
 							args[asmIndex] = lv.name;
 						}
 
@@ -268,7 +269,7 @@ class AsmClassRemapper extends ClassRemapper {
 
 							lv.name = ((AsmRemapper) remapper).mapMethodVar(owner, methodNode.name, methodNode.desc, lv.index, startOpIdx, i, lv.name);
 
-							if (renameInvalidLocals && isValidJavaIdentifier(lv.name)) { // block valid name from generation
+							if (renameInvalidLocals && isValidJavaIdentifierAndNotKeyword(lv.name)) { // block valid name from generation
 								nameCounts.putIfAbsent(lv.name, 1);
 							}
 						}
@@ -283,7 +284,7 @@ class AsmClassRemapper extends ClassRemapper {
 				for (int i = 0; i < args.length; i++) {
 					args[i] = ((AsmRemapper) remapper).mapMethodArg(owner, methodNode.name, methodNode.desc, getLvIndex(i, isStatic, argTypes), args[i]);
 
-					if (renameInvalidLocals && isValidJavaIdentifier(args[i])) { // block valid name from generation
+					if (renameInvalidLocals && isValidJavaIdentifierAndNotKeyword(args[i])) { // block valid name from generation
 						nameCounts.putIfAbsent(args[i], 1);
 					}
 				}
@@ -292,7 +293,7 @@ class AsmClassRemapper extends ClassRemapper {
 			// fix args
 			if (renameInvalidLocals) {
 				for (int i = 0; i < args.length; i++) {
-					if (!isValidJavaIdentifier(args[i])) {
+					if (!isValidJavaIdentifierAndNotKeyword(args[i])) {
 						args[i] = getNameFromType(remapper.mapDesc(argTypes[i].getDescriptor()), true);
 					}
 				}
@@ -323,7 +324,7 @@ class AsmClassRemapper extends ClassRemapper {
 							lv.name = args[asmIndex];
 							argsWritten[asmIndex] = true;
 						} else { // var
-							if (renameInvalidLocals && !isValidJavaIdentifier(lv.name)) {
+						if (renameInvalidLocals && !isValidJavaIdentifierAndNotKeyword(lv.name)) {
 								lv.name = getNameFromType(lv.desc, false);
 							}
 						}
@@ -467,6 +468,7 @@ class AsmClassRemapper extends ClassRemapper {
 					varName = firstLc + type.substring(start + 1, type.length() - 1);
 				}
 
+				// Only check for invalid identifiers, keyword check is performed below
 				if (!isValidJavaIdentifier(varName)) {
 					varName = isArg ? "arg" : "lv"; // lv instead of var to avoid confusion with Java 10's var keyword
 				}
@@ -481,7 +483,7 @@ class AsmClassRemapper extends ClassRemapper {
 				String pluralVarName = varName + 's';
 
 				// Appending 's' could make name invalid, e.g. "clas" -> "class" (keyword)
-				if (isValidJavaIdentifier(pluralVarName)) {
+				if (!isJavaKeyword(pluralVarName)) {
 					varName = pluralVarName;
 				}
 			}
@@ -490,11 +492,21 @@ class AsmClassRemapper extends ClassRemapper {
 			return count == 0 ? varName : varName.concat(Integer.toString(count));
 		}
 
+		private static boolean isValidJavaIdentifierAndNotKeyword(String s) {
+			return isValidJavaIdentifier(s) && !isJavaKeyword(s);
+		}
+
 		private static boolean isValidJavaIdentifier(String s) {
-			if (s == null || s.isEmpty()) return false;
+			return s != null && !s.isEmpty() && SourceVersion.isIdentifier(s)
+					// Ignorable characters cannot be represented in source code,
+					// would be ignored when re-compiled
+					&& !s.codePoints().anyMatch(Character::isIdentifierIgnorable);
+		}
+
+		private static boolean isJavaKeyword(String s) {
 			// TODO: Use SourceVersion.isKeyword(CharSequence, SourceVersion) in Java 9
 			//       to make it independent from JDK version
-			return SourceVersion.isIdentifier(s) && !SourceVersion.isKeyword(s);
+			return SourceVersion.isKeyword(s);
 		}
 
 		private final String owner;
@@ -551,7 +563,7 @@ class AsmClassRemapper extends ClassRemapper {
 		public AnnotationVisitor visitArray(String name) {
 			// try to infer the descriptor from an element
 
-			return new AnnotationVisitor(Opcodes.ASM7) {
+			return new AnnotationVisitor(Opcodes.ASM8) {
 				@Override
 				public void visit(String name, Object value) {
 					if (av == null) start(getDesc(value));
