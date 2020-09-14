@@ -39,11 +39,11 @@ import net.fabricmc.tinyremapper.TinyRemapper.Direction;
 
 public final class ClassInstance {
 	ClassInstance(TinyRemapper context, boolean isInput, InputTag[] inputTags, Path srcFile, byte[] data) {
-		this.context = context;
 		this.isInput = isInput;
 		this.inputTags = inputTags;
 		this.srcPath = srcFile;
 		this.data = data;
+		ignoreFieldDesc = context.ignoreFieldDesc;
 	}
 
 	void init(String name, String superName, int access, String[] interfaces) {
@@ -325,7 +325,7 @@ public final class ClassInstance {
 	}
 
 	public MemberInstance resolvePartial(MemberType type, String name, String descPrefix) {
-		String idPrefix = MemberInstance.getId(type, name, descPrefix != null ? descPrefix : "", context.ignoreFieldDesc);
+		String idPrefix = MemberInstance.getId(type, name, descPrefix != null ? descPrefix : "", ignoreFieldDesc);
 		boolean isField = type == MemberType.FIELD;
 
 		MemberInstance member = getMemberPartial(type, idPrefix);
@@ -449,7 +449,7 @@ public final class ClassInstance {
 	private static final MemberInstance nullMember = new MemberInstance(null, null, null, null, 0);
 	private static final AtomicReferenceFieldUpdater<ClassInstance, InputTag[]> inputTagsUpdater = AtomicReferenceFieldUpdater.newUpdater(ClassInstance.class, InputTag[].class, "inputTags");
 
-	final TinyRemapper context;
+	final boolean ignoreFieldDesc;
 	final boolean isInput;
 	private volatile InputTag[] inputTags; // cow input tag list, null for none
 	final Path srcPath;

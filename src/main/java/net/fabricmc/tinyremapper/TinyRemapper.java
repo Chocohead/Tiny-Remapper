@@ -61,7 +61,60 @@ import org.objectweb.asm.util.CheckClassAdapter;
 import net.fabricmc.tinyremapper.MemberInstance.MemberType;
 
 public class TinyRemapper {
-	public static class Builder {
+	public static abstract class OutputSettings {
+		public OutputSettings threads(int threadCount) {
+			this.threadCount = threadCount;
+			return this;
+		}
+
+		public OutputSettings removeFrames(boolean value) {
+			removeFrames = value;
+			return this;
+		}
+
+		public OutputSettings checkPackageAccess(boolean value) {
+			checkPackageAccess = value;
+			return this;
+		}
+
+		public OutputSettings fixPackageAccess(boolean value) {
+			fixPackageAccess = value;
+			return this;
+		}
+
+		public OutputSettings rebuildSourceFilenames(boolean value) {
+			rebuildSourceFilenames = value;
+			return this;
+		}
+
+		public OutputSettings skipLocalVariableMapping(boolean value) {
+			skipLocalMapping = value;
+			return this;
+		}
+
+		public OutputSettings renameInvalidLocals(boolean value) {
+			renameInvalidLocals = value;
+			return this;
+		}
+
+		public OutputSettings extraRemapper(Remapper remapper) {
+			extraRemapper = remapper;
+			return this;
+		}
+
+		public abstract TinyRemapper build();
+
+		protected int threadCount;
+		protected boolean removeFrames = false;
+		protected boolean checkPackageAccess = false;
+		protected boolean fixPackageAccess = false;
+		protected boolean rebuildSourceFilenames = false;
+		protected boolean skipLocalMapping = false;
+		protected boolean renameInvalidLocals = false;
+		protected Remapper extraRemapper;
+	}
+
+	public static class Builder extends OutputSettings {
 		private Builder() { }
 
 		public Builder withMappings(IMappingProvider provider) {
@@ -74,8 +127,9 @@ public class TinyRemapper {
 			return this;
 		}
 
+		@Override
 		public Builder threads(int threadCount) {
-			this.threadCount = threadCount;
+			super.threads(threadCount);
 			return this;
 		}
 
@@ -97,8 +151,9 @@ public class TinyRemapper {
 			return this;
 		}
 
+		@Override
 		public Builder removeFrames(boolean value) {
-			removeFrames = value;
+			super.removeFrames(value);
 			return this;
 		}
 
@@ -112,28 +167,33 @@ public class TinyRemapper {
 			return this;
 		}
 
+		@Override
 		public Builder checkPackageAccess(boolean value) {
-			checkPackageAccess = value;
+			super.checkPackageAccess(value);
 			return this;
 		}
 
+		@Override
 		public Builder fixPackageAccess(boolean value) {
-			fixPackageAccess = value;
+			super.fixPackageAccess(value);
 			return this;
 		}
 
+		@Override
 		public Builder rebuildSourceFilenames(boolean value) {
-			rebuildSourceFilenames = value;
+			super.rebuildSourceFilenames(value);
 			return this;
 		}
 
+		@Override
 		public Builder skipLocalVariableMapping(boolean value) {
-			skipLocalMapping = value;
+			super.skipLocalVariableMapping(value);
 			return this;
 		}
 
+		@Override
 		public Builder renameInvalidLocals(boolean value) {
-			renameInvalidLocals = value;
+			super.renameInvalidLocals(value);
 			return this;
 		}
 
@@ -142,8 +202,9 @@ public class TinyRemapper {
 			return this;
 		}
 
+		@Override
 		public Builder extraRemapper(Remapper remapper) {
-			extraRemapper = remapper;
+			super.extraRemapper(remapper);
 			return this;
 		}
 
@@ -160,20 +221,12 @@ public class TinyRemapper {
 
 		private final Set<IMappingProvider> mappingProviders = new HashSet<>();
 		private boolean ignoreFieldDesc;
-		private int threadCount;
 		private final Set<String> forcePropagation = new HashSet<>();
 		private boolean keepInputData = false;
 		private boolean propagatePrivate = false;
-		private boolean removeFrames = false;
 		private boolean ignoreConflicts = false;
 		private boolean resolveMissing = false;
-		private boolean checkPackageAccess = false;
-		private boolean fixPackageAccess = false;
-		private boolean rebuildSourceFilenames = false;
-		private boolean skipLocalMapping = false;
-		private boolean renameInvalidLocals = false;
 		private ClassVisitor extraAnalyzeVisitor;
-		private Remapper extraRemapper;
 	}
 
 	private TinyRemapper(Collection<IMappingProvider> mappingProviders, boolean ignoreFieldDesc,
@@ -856,6 +909,32 @@ public class TinyRemapper {
 		refresh();
 
 		return remapper;
+	}
+
+	public OutputSettings cloner() {
+		return new OutputSettings() {
+			@Override
+			public TinyRemapper build() {
+				TinyRemapper remapper = new TinyRemapper(mappingProviders, ignoreFieldDesc, threadCount, keepInputData, forcePropagation, 
+															propagatePrivate, removeFrames, ignoreConflicts, resolveMissing, checkPackageAccess, fixPackageAccess, 
+															rebuildSourceFilenames, skipLocalMapping, renameInvalidLocals, extraAnalyzeVisitor, extraRemapper);
+
+				synchronized (TinyRemapper.this) {
+					refresh();
+
+					remapper.singleInputTags.get().putAll(singleInputTags.get());
+					remapper.classMap.putAll(classMap);
+					remapper.methodMap.putAll(methodMap);
+					remapper.localMap.putAll(localMap);
+					remapper.fieldMap.putAll(fieldMap);
+					remapper.classes.putAll(classes);
+					remapper.dirty = false; //Shouldn't be
+				}
+
+				return remapper;
+			}
+		}.threads(threadCount).removeFrames(removeFrames).checkPackageAccess(checkPackageAccess).fixPackageAccess(fixPackageAccess)
+		 .rebuildSourceFilenames(rebuildSourceFilenames).skipLocalVariableMapping(skipLocalMapping).renameInvalidLocals(renameInvalidLocals).extraRemapper(extraRemapper);
 	}
 
 	private static void waitForAll(Iterable<Future<?>> futures) {

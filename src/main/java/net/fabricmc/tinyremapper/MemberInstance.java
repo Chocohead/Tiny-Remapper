@@ -31,7 +31,7 @@ public final class MemberInstance {
 	}
 
 	public String getId() {
-		return getId(type, name, desc, cls.context.ignoreFieldDesc);
+		return getId(type, name, desc, cls.ignoreFieldDesc);
 	}
 
 	public boolean isStatic() {
