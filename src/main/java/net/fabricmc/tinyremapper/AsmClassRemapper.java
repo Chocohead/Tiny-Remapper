@@ -413,92 +413,92 @@ class AsmClassRemapper extends ClassRemapper {
 		}
 
 		private String getNameFromType(String type, boolean isArg) {
-			boolean plural = false;
+			String varName; out: {
+				boolean plural = false;
 
-			if (type.charAt(0) == '[') {
-				plural = true;
-				type = type.substring(type.lastIndexOf('[') + 1);
-			}
+				if (type.charAt(0) == '[') {
+					plural = true;
+					type = type.substring(type.lastIndexOf('[') + 1);
+				}
 
-			String varName;
-			switch (type.charAt(0)) {
-			case 'B': varName = "b"; break;
-			case 'C': varName = "c"; break;
-			case 'D': varName = "d"; break;
-			case 'F': varName = "f"; break;
-			case 'I': {
-				//Strictly speaking is shouldn't ever fail the identifier check, but this covers any future revelations
-				varName = plural && isValidJavaIdentifier("is") ? "is" : "i";
+				switch (type.charAt(0)) {
+				case 'B': varName = "b"; break;
+				case 'C': varName = "c"; break;
+				case 'D': varName = "d"; break;
+				case 'F': varName = "f"; break;
+				case 'I': {
+					varName = plural ? "is" : "i";
 
-				int index = 1;
-				while (nameCounts.putIfAbsent(varName, 0) != null) {
-					switch (varName.charAt(0)) {
-					case 'i':
-						varName = 'j' + varName.substring(1);
-						break;
+					int index = 1; //Strictly speaking the identifier check shouldn't ever fail, but this covers any future revelations
+					while (isValidJavaIdentifier(varName) && nameCounts.putIfAbsent(varName, 0) != null) {
+						switch (varName.charAt(0)) {
+						case 'i':
+							varName = plural ? "js" : "j";
+							break;
 
-					case 'j':
-						varName = 'k' + varName.substring(1);
-						break;
+						case 'j':
+							varName = plural ? "ks" : "k";
+							break;
 
-					case 'k':
-						varName = 'i' + varName.substring(1) + index++;
-						break;
+						case 'k':
+							varName = (plural ? "is" : "i") + index++;
+							break;
 
-					default:
-						throw new IllegalStateException("Unexpected varName: " + varName);
+						default:
+							throw new IllegalStateException("Unexpected varName: " + varName);
+						}
 					}
+
+					return varName;
+				}
+				case 'J': varName = "l"; break;
+				case 'S': varName = "s"; break;
+				case 'Z': varName = "flag"; break;
+				case 'L': {
+					//First offer the remapper to suggest a name for the type
+					varName = ((AsmRemapper) remapper).suggestLocalName(type, plural);
+					if (isValidJavaIdentifier(varName)) break out;
+
+					// strip preceding packages and outer classes
+
+					int start = type.lastIndexOf('/') + 1;
+					int startDollar = type.lastIndexOf('$') + 1;
+
+					if (startDollar > start && startDollar < type.length() - 1) {
+						start = startDollar;
+					} else if (start == 0) {
+						start = 1;
+					}
+
+					// assemble, lowercase first char, apply plural s
+
+					char first = type.charAt(start);
+					char firstLc = Character.toLowerCase(first);
+
+					if (first == firstLc) { // type is already lower case, the var name would shade the type
+						varName = null;
+					} else {
+						varName = firstLc + type.substring(start + 1, type.length() - 1);
+					}
+
+					// Only check for invalid identifiers, keyword check is performed below
+					if (!isValidJavaIdentifier(varName)) {
+						varName = isArg ? "arg" : "lv"; // lv instead of var to avoid confusion with Java 10's var keyword
+					}
+
+					break;
+				}
+				default:
+					throw new IllegalStateException("Unexpected type: " + type);
 				}
 
-				return varName;
-			}
-			case 'J': varName = "l"; break;
-			case 'S': varName = "s"; break;
-			case 'Z': varName = "flag"; break;
-			case 'L': {
-				//First offer the remapper to suggest a name for the type
-				varName = ((AsmRemapper) remapper).suggestLocalName(type, plural);
-				if (isValidJavaIdentifier(varName)) break;
+				if (plural) {
+					String pluralVarName = varName + 's';
 
-				// strip preceding packages and outer classes
-
-				int start = type.lastIndexOf('/') + 1;
-				int startDollar = type.lastIndexOf('$') + 1;
-
-				if (startDollar > start && startDollar < type.length() - 1) {
-					start = startDollar;
-				} else if (start == 0) {
-					start = 1;
-				}
-
-				// assemble, lowercase first char, apply plural s
-
-				char first = type.charAt(start);
-				char firstLc = Character.toLowerCase(first);
-
-				if (first == firstLc) { // type is already lower case, the var name would shade the type
-					varName = null;
-				} else {
-					varName = firstLc + type.substring(start + 1, type.length() - 1);
-				}
-
-				// Only check for invalid identifiers, keyword check is performed below
-				if (!isValidJavaIdentifier(varName)) {
-					varName = isArg ? "arg" : "lv"; // lv instead of var to avoid confusion with Java 10's var keyword
-				}
-
-				break;
-			}
-			default:
-				throw new IllegalStateException("Unexpected type: " + type);
-			}
-
-			if (plural) {
-				String pluralVarName = varName + 's';
-
-				// Appending 's' could make name invalid, e.g. "clas" -> "class" (keyword)
-				if (!isJavaKeyword(pluralVarName)) {
-					varName = pluralVarName;
+					// Appending 's' could make name invalid, e.g. "clas" -> "class" (keyword)
+					if (!isJavaKeyword(pluralVarName)) {
+						varName = pluralVarName;
+					}
 				}
 			}
 

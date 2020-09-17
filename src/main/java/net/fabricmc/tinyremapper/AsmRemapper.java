@@ -19,6 +19,7 @@ package net.fabricmc.tinyremapper;
 
 import java.util.Locale;
 
+import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.Remapper;
 
 import net.fabricmc.tinyremapper.MemberInstance.MemberType;
@@ -113,6 +114,8 @@ class AsmRemapper extends Remapper {
 	}
 
 	public String suggestLocalName(String type, boolean plural) {
+		type = Type.getType(type).getInternalName();
+
 		for (IMappingProvider provider : remapper.mappingProviders) {
 			String name = provider.suggestLocalName(type, plural);
 			if (name != null) return name;
