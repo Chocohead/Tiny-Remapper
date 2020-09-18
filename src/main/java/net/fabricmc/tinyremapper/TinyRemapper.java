@@ -922,7 +922,7 @@ public class TinyRemapper {
 				synchronized (TinyRemapper.this) {
 					refresh();
 
-					remapper.singleInputTags.get().putAll(singleInputTags.get());
+					remapper.singleInputTags.set(new IdentityHashMap<>(singleInputTags.get()));
 					remapper.classMap.putAll(classMap);
 					remapper.methodMap.putAll(methodMap);
 					remapper.localMap.putAll(localMap);
