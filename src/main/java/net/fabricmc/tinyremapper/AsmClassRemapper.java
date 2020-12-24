@@ -427,21 +427,22 @@ class AsmClassRemapper extends ClassRemapper {
 				case 'D': varName = "d"; break;
 				case 'F': varName = "f"; break;
 				case 'I': {
-					varName = plural ? "is" : "i";
+					String root = plural ? "is" : "i";
+					varName = root;
 
 					int index = 1; //Strictly speaking the identifier check shouldn't ever fail, but this covers any future revelations
 					while (isValidJavaIdentifier(varName) && nameCounts.putIfAbsent(varName, 0) != null) {
 						switch (varName.charAt(0)) {
 						case 'i':
-							varName = plural ? "js" : "j";
+							varName = 'j' + varName.substring(1);
 							break;
 
 						case 'j':
-							varName = plural ? "ks" : "k";
+							varName = 'k' + varName.substring(1);
 							break;
 
 						case 'k':
-							varName = (plural ? "is" : "i") + index++;
+							varName = root + index++;
 							break;
 
 						default:
