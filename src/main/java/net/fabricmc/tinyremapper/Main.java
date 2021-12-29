@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2016, 2018 Player, asie
+ * Copyright (c) 2016, 2018, Player, asie
+ * Copyright (c) 2016, 2021, FabricMC
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -30,13 +31,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
+
+import net.fabricmc.tinyremapper.TinyRemapper.LinkedMethodPropagation;
+import net.fabricmc.tinyremapper.extension.mixin.MixinExtension;
 
 public class Main {
 	public static void main(String[] rawArgs) {
 		List<String> args = new ArrayList<String>(rawArgs.length);
-		boolean reverse = false;
 		boolean ignoreFieldDesc = false;
 		boolean propagatePrivate = false;
+		LinkedMethodPropagation propagateBridges = LinkedMethodPropagation.DISABLED;
 		boolean removeFrames = false;
 		Set<String> forcePropagation = Collections.emptySet();
 		File forcePropagationFile = null;
@@ -47,7 +52,10 @@ public class Main {
 		boolean rebuildSourceFilenames = false;
 		boolean skipLocalVariableMapping = false;
 		boolean renameInvalidLocals = false;
+		Pattern invalidLvNamePattern = null;
 		NonClassCopyMode ncCopyMode = NonClassCopyMode.FIX_META_INF;
+		int threads = -1;
+		boolean enableMixin = false;
 
 		for (String arg : rawArgs) {
 			if (arg.startsWith("--")) {
@@ -57,10 +65,6 @@ public class Main {
 				argKey = argKey.toLowerCase(Locale.ROOT);
 
 				switch (argKey.toLowerCase()) {
-				case "reverse":
-					System.err.println("WARNING: --reverse is not currently implemented!");
-					reverse = true;
-					break;
 				case "ignorefielddesc":
 					ignoreFieldDesc = true;
 					break;
@@ -69,6 +73,17 @@ public class Main {
 					break;
 				case "propagateprivate":
 					propagatePrivate = true;
+					break;
+				case "propagatebridges":
+					switch (arg.substring(valueSepPos + 1).toLowerCase(Locale.ENGLISH)) {
+					case "disabled": propagateBridges = LinkedMethodPropagation.DISABLED; break;
+					case "enabled": propagateBridges = LinkedMethodPropagation.ENABLED; break;
+					case "compatible": propagateBridges = LinkedMethodPropagation.COMPATIBLE; break;
+					default:
+						System.out.println("invalid propagateBridges: "+arg.substring(valueSepPos + 1));
+						System.exit(1);
+					}
+
 					break;
 				case "removeframes":
 					removeFrames = true;
@@ -94,6 +109,9 @@ public class Main {
 				case "renameinvalidlocals":
 					renameInvalidLocals = true;
 					break;
+				case "invalidlvnamepattern":
+					invalidLvNamePattern = Pattern.compile(arg.substring(valueSepPos + 1));
+					break;
 				case "nonclasscopymode":
 					switch (arg.substring(valueSepPos + 1).toLowerCase(Locale.ENGLISH)) {
 					case "unchanged": ncCopyMode = NonClassCopyMode.UNCHANGED; break;
@@ -104,6 +122,18 @@ public class Main {
 						System.exit(1);
 					}
 
+					break;
+				case "threads":
+					threads = Integer.parseInt(arg.substring(valueSepPos + 1));
+
+					if (threads <= 0) {
+						System.out.println("Thread count must be > 0");
+						System.exit(1);
+					}
+
+					break;
+				case "mixin":
+					enableMixin = true;
 					break;
 				default:
 					System.out.println("invalid argument: "+arg+".");
@@ -120,14 +150,15 @@ public class Main {
 		}
 
 		Path input = Paths.get(args.get(0));
+
 		if (!Files.isReadable(input)) {
 			System.out.println("Can't read input file "+input+".");
 			System.exit(1);
 		}
 
 		Path output = Paths.get(args.get(1));
-
 		Path mappings = Paths.get(args.get(2));
+
 		if (!Files.isReadable(mappings) || Files.isDirectory(mappings)) {
 			System.out.println("Can't read mappings file "+mappings+".");
 			System.exit(1);
@@ -140,6 +171,7 @@ public class Main {
 
 		for (int i = 0; i < classpath.length; i++) {
 			classpath[i] = Paths.get(args.get(i + 5));
+
 			if (!Files.isReadable(classpath[i])) {
 				System.out.println("Can't read classpath file "+i+": "+classpath[i]+".");
 				System.exit(1);
@@ -172,11 +204,12 @@ public class Main {
 
 		long startTime = System.nanoTime();
 
-		TinyRemapper remapper = TinyRemapper.newRemapper()
+		TinyRemapper.Builder builder = TinyRemapper.newRemapper()
 				.withMappings(TinyUtils.createTinyMappingProvider(mappings, fromM, toM))
 				.ignoreFieldDesc(ignoreFieldDesc)
 				.withForcedPropagation(forcePropagation)
 				.propagatePrivate(propagatePrivate)
+				.propagateBridges(propagateBridges)
 				.removeFrames(removeFrames)
 				.ignoreConflicts(ignoreConflicts)
 				.checkPackageAccess(checkPackageAccess)
@@ -185,7 +218,14 @@ public class Main {
 				.rebuildSourceFilenames(rebuildSourceFilenames)
 				.skipLocalVariableMapping(skipLocalVariableMapping)
 				.renameInvalidLocals(renameInvalidLocals)
-				.build();
+				.invalidLvNamePattern(invalidLvNamePattern)
+				.threads(threads);
+
+		if (enableMixin) {
+			builder = builder.extension(new MixinExtension());
+		}
+
+		TinyRemapper remapper = builder.build();
 
 		try (OutputConsumerPath outputConsumer = new OutputConsumerPath.Builder(output).build()) {
 			outputConsumer.addNonClassFiles(input, ncCopyMode, remapper);

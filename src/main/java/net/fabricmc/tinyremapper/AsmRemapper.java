@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2016, 2018 Player, asie
+ * Copyright (c) 2016, 2018, Player, asie
+ * Copyright (c) 2018, 2021, FabricMC
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,24 +18,29 @@
 
 package net.fabricmc.tinyremapper;
 
-import java.util.Locale;
+import java.util.Collection;
 
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.Remapper;
 
-import net.fabricmc.tinyremapper.MemberInstance.MemberType;
+import net.fabricmc.tinyremapper.TinyRemapper.LinkedMethodPropagation;
+import net.fabricmc.tinyremapper.TinyRemapper.MrjState;
+import net.fabricmc.tinyremapper.api.TrMember;
+import net.fabricmc.tinyremapper.api.TrMethod;
+import net.fabricmc.tinyremapper.api.TrRemapper;
 
-class AsmRemapper extends Remapper {
-	public AsmRemapper(TinyRemapper remapper) {
-		this.remapper = remapper;
+class AsmRemapper extends TrRemapper {
+	AsmRemapper(MrjState context) {
+		this.context = context;
+		this.tr = context.tr;
 	}
 
 	@Override
 	public String map(String typeName) {
-		String ret = remapper.classMap.get(typeName);
+		String ret = tr.classMap.get(typeName);
 		if (ret != null) return ret;
 
-		return remapper.extraRemapper != null ? remapper.extraRemapper.map(typeName) : typeName;
+		return tr.extraRemapper != null ? tr.extraRemapper.map(typeName) : typeName;
 	}
 
 	@Override
@@ -42,40 +48,59 @@ class AsmRemapper extends Remapper {
 		ClassInstance cls = getClass(owner);
 		if (cls == null) return name;
 
-		MemberInstance member = cls.resolve(MemberType.FIELD, MemberInstance.getFieldId(name, desc, remapper.ignoreFieldDesc));
+		return mapFieldName(cls, name, desc);
+	}
+
+	final String mapFieldName(ClassInstance cls, String name, String desc) {
+		MemberInstance member = cls.resolve(TrMember.MemberType.FIELD, MemberInstance.getFieldId(name, desc, tr.ignoreFieldDesc));
 		String newName;
 
 		if (member != null && (newName = member.getNewName()) != null) {
 			return newName;
 		}
 
-		assert (newName = remapper.fieldMap.get(owner+"/"+MemberInstance.getFieldId(name, desc, remapper.ignoreFieldDesc))) == null || newName.equals(name);
+		assert (newName = tr.fieldMap.get(cls.getName()+"/"+MemberInstance.getFieldId(name, desc, tr.ignoreFieldDesc))) == null || newName.equals(name);
 
-		return remapper.extraRemapper != null ? remapper.extraRemapper.mapFieldName(owner, name, desc) : name;
+		return tr.extraRemapper != null ? tr.extraRemapper.mapFieldName(cls.getName(), name, desc) : name;
+	}
+
+	@Override
+	public String mapRecordComponentName(String owner, String name, String descriptor) {
+		return mapFieldName(owner, name, descriptor);
 	}
 
 	@Override
 	public String mapMethodName(String owner, String name, String desc) {
+		if (!desc.startsWith("(")) { // workaround for Remapper.mapValue calling mapMethodName even if the Handle is a field one
+			return mapFieldName(owner, name, desc);
+		}
+
 		ClassInstance cls = getClass(owner);
 		if (cls == null) return name; // TODO: try to map these from just the mappings?, warn if actual class is missing
 
-		MemberInstance member = cls.resolve(MemberType.METHOD, MemberInstance.getMethodId(name, desc));
+		return mapMethodName(cls, name, desc);
+	}
+
+	final String mapMethodName(ClassInstance cls, String name, String desc) {
+		MemberInstance member = cls.resolve(TrMember.MemberType.METHOD, MemberInstance.getMethodId(name, desc));
 		String newName;
 
 		if (member != null && (newName = member.getNewName()) != null) {
 			return newName;
 		}
 
-		assert (newName = remapper.methodMap.get(owner+"/"+MemberInstance.getMethodId(name, desc))) == null || newName.equals(name);
+		assert (newName = tr.methodMap.get(cls.getName()+"/"+MemberInstance.getMethodId(name, desc))) == null || newName.equals(name);
 
-		return remapper.extraRemapper != null ? remapper.extraRemapper.mapMethodName(owner, name, desc) : name;
+		return tr.extraRemapper != null ? tr.extraRemapper.mapMethodName(cls.getName(), name, desc) : name;
 	}
 
+	@Override
 	public String mapMethodNamePrefixDesc(String owner, String name, String descPrefix) {
 		ClassInstance cls = getClass(owner);
 		if (cls == null) return name;
 
-		MemberInstance member = cls.resolvePartial(MemberType.METHOD, name, descPrefix);
+		Collection<TrMethod> members = cls.resolveMethods(name, descPrefix, true, null, null);
+		MemberInstance member = members.size() == 1 ? (MemberInstance) members.iterator().next() : null;
 		String newName;
 
 		if (member != null && (newName = member.getNewName()) != null) {
@@ -94,10 +119,11 @@ class AsmRemapper extends Remapper {
 	}
 
 	private String getLocalVariable(String owner, String method, int index) {
-		String[] locals = remapper.localMap.get(mapType(owner) + '/' + method);
+		String[] locals = tr.localMap.get(mapType(owner) + '/' + method);
 		return locals != null && index < locals.length ? locals[index] : null;
 	}
 
+	@Override
 	public String mapMethodArg(String methodOwner, String methodName, String methodDesc, int lvIndex, String name) {
 		String newName = getLocalVariable(methodOwner, MemberInstance.getMethodId(methodName, methodDesc), lvIndex);
 		if (newName != null) return newName;
@@ -105,7 +131,7 @@ class AsmRemapper extends Remapper {
 		ClassInstance cls = getClass(methodOwner);
 		if (cls == null) return name;
 
-		MemberInstance originatingMethod = cls.resolve(MemberType.METHOD, MemberInstance.getMethodId(methodName, methodDesc));
+		MemberInstance originatingMethod = cls.resolve(TrMember.MemberType.METHOD, MemberInstance.getMethodId(methodName, methodDesc));
 		if (originatingMethod == null) return name;
 
 		String originatingNewName = getLocalVariable(originatingMethod.newNameOriginatingCls, MemberInstance.getMethodId(originatingMethod.name, originatingMethod.desc), lvIndex);
@@ -116,7 +142,7 @@ class AsmRemapper extends Remapper {
 	public String suggestLocalName(String type, boolean plural) {
 		type = Type.getType(type).getInternalName();
 
-		for (IMappingProvider provider : remapper.mappingProviders) {
+		for (IMappingProvider provider : tr.mappingProviders) {
 			String name = provider.suggestLocalName(type, plural);
 			if (name != null) return name;
 		}
@@ -128,136 +154,39 @@ class AsmRemapper extends Remapper {
 		return name; // TODO: implement
 	}
 
-	/**
-	 * Check if a class can access a specific member, printing and recording failure for later.
-	 */
-	public void checkPackageAccess(String accessingOwner, String owner, String name, String desc, MemberType type) {
-		ClassInstance cls = getClass(owner);
-		if (cls == null) return;
+	@Override
+	public String mapAnnotationAttributeName(String descriptor, String name) {
+		throw new RuntimeException("Deprecated function");
+	}
 
-		String id = MemberInstance.getId(type, name, desc, remapper.ignoreFieldDesc);
-		MemberInstance member = cls.resolve(type, id);
+	@Override
+	public String mapAnnotationAttributeName(final String annotationDesc, final String name, String attributeDesc) {
+		String annotationClass = Type.getType(annotationDesc).getInternalName();
 
-		if (member == null) {
-			// should be just missing super classes/interfaces from the analyzed class path, especially java ones
-			// -> assume the access is still valid after remapping
-			/*System.out.printf("Can't find member %s/%s accessed from %s.%n",
-					owner, MemberInstance.getId(type, name, desc, remapper.ignoreFieldDesc), accessingOwner);*/
-			return;
-		}
-
-		// check if accessible via public, private or same class
-		// private is fine since it can't have been influenced by remapping
-		boolean clsAccessible = cls.isPublicOrPrivate() || accessingOwner.equals(owner);
-		boolean memberAccessible = member.isPublicOrPrivate() || accessingOwner.equals(member.cls.getName());
-
-		if (clsAccessible && memberAccessible) { // trivially accessible
-			return;
-		}
-
-		// -> the class and/or member is only reachable from the same package or - if protected - from a sub class
-
-		// check for same package after mapping
-
-		String mappedAccessor = map(accessingOwner);
-		int pkgEnd = mappedAccessor.lastIndexOf('/');
-
-		if (!clsAccessible && isSamePackage(mappedAccessor, pkgEnd, map(owner))) {
-			if (memberAccessible || owner.equals(member.cls.getName())) { // both cls+member are accessible
-				return;
-			} else { // only the class is known to be accessible, further member accessibility testing follows
-				clsAccessible = true;
-			}
-		}
-
-		if (!memberAccessible && isSamePackage(mappedAccessor, pkgEnd, map(member.cls.getName()))) {
-			if (clsAccessible) { // both cls+member are accessible
-				return;
-			} else {
-				memberAccessible = true;
-			}
-		}
-
-		// check for access to protected member in a super class
-
-		if (member.isProtected() && hasSuperCls(accessingOwner, member.cls.getName())) { // accessor in sub-class of accessed member
-			// JVMS 5.4.4 is partially satisfied: D (=accessingOwner) is the same or a sub class of C (=member.cls)
-			// still need to check that the access is static or doesn't go through a sibling branch: T (=owner) is same/super/sub of D
-			// example: b extends a, c extends a: b can't access protected c.x even if x is declared in a, it can only access a.x or b.x
-			if (member.isStatic()
-					|| owner.equals(accessingOwner) || owner.equals(member.cls.getName()) // trivial cases
-					|| hasSuperCls(owner, accessingOwner) || hasSuperCls(accessingOwner, owner)) {
-				return;
-			}
-		}
-
-		assert !clsAccessible || !memberAccessible;
-
-		// target class or member is not public, in a different package and not in a super class
-		// -> invalid access detected, needs to be public
-
-		String mappedName, mappedDesc;
-
-		if (type == MemberType.FIELD) {
-			mappedName = mapFieldName(owner, name, desc);
-			mappedDesc = mapDesc(desc);
+		if (attributeDesc == null) {
+			return this.mapMethodNamePrefixDesc(annotationClass, name, "()");
 		} else {
-			mappedName = mapMethodName(owner, name, desc);
-			mappedDesc = mapMethodDesc(desc);
+			return this.mapMethodName(annotationClass, name, "()" + attributeDesc);
 		}
+	}
 
-		String inaccessible = null;
+	void finish(String className, ClassVisitor cv) {
+		ClassInstance cls = null;
 
-		if (!clsAccessible) {
-			inaccessible = String.format("package-private class %s", map(owner));
-		}
+		if (tr.propagateBridges == LinkedMethodPropagation.COMPATIBLE
+				|| tr.propagateRecordComponents == LinkedMethodPropagation.COMPATIBLE) {
+			cls = getClass(className);
 
-		if (!memberAccessible) {
-			String memberMsg = String.format("%s %s %s/%s",
-					member.isProtected() ? "protected" : "package-private",
-					type.name().toLowerCase(Locale.ENGLISH),
-					map(member.cls.getName()),
-					MemberInstance.getId(type, mappedName, mappedDesc, remapper.ignoreFieldDesc));
-
-			if (inaccessible == null) {
-				inaccessible = memberMsg;
-			} else {
-				inaccessible = String.format("%s, %s", inaccessible, memberMsg);
+			if (cls != null) {
+				BridgeHandler.generateCompatBridges(cls, this, cv);
 			}
 		}
-
-		System.out.printf("Invalid access from %s to %s after remapping.%n",
-				mappedAccessor,
-				inaccessible);
-
-		if (!clsAccessible) remapper.classesToMakePublic.add(cls);
-		if (!memberAccessible) remapper.membersToMakePublic.add(member);
 	}
 
-	private boolean isSamePackage(String clsA, int pkgEnd, String clsB) {
-		return pkgEnd < 0 && clsB.indexOf('/') < 0 // both empty package
-					|| pkgEnd >= 0 // both non-empty (considering prev condition)
-					&& pkgEnd < clsB.length() // pkg not longer than whole other name
-					&& clsB.charAt(pkgEnd) == '/' // potentially same prefix length
-					&& clsB.indexOf('/', pkgEnd + 1) < 0 // definitely same prefix length
-					&& clsA.regionMatches(0, clsB, 0, pkgEnd - 1); // same prefix -> same package
+	ClassInstance getClass(String owner) {
+		return context.getClass(owner);
 	}
 
-	private boolean hasSuperCls(String cls, String reqSuperCls) {
-		assert !cls.equals(reqSuperCls);
-
-		ClassInstance c;
-
-		while ((c = getClass(cls)) != null && (cls = c.getSuperName()) != null) {
-			if (cls.equals(reqSuperCls)) return true;
-		}
-
-		return false;
-	}
-
-	private ClassInstance getClass(String owner) {
-		return remapper.classes.get(owner);
-	}
-
-	private final TinyRemapper remapper;
+	final MrjState context;
+	final TinyRemapper tr;
 }

@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2016, 2018 Player, asie
+ * Copyright (c) 2016, 2018, Player, asie
+ * Copyright (c) 2016, 2021, FabricMC
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -70,7 +71,7 @@ public final class TinyUtils {
 	private static class SimpleClassMapper extends Remapper {
 		private final Map<String, String> classMap;
 
-		public SimpleClassMapper(Map<String, String> map) {
+		SimpleClassMapper(Map<String, String> map) {
 			this.classMap = map;
 		}
 
@@ -150,7 +151,6 @@ public final class TinyUtils {
 	}
 
 	private TinyUtils() {
-
 	}
 
 	public static IMappingProvider createTinyMappingProvider(final Path mappings, String fromM, String toM) {
