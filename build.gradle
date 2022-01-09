@@ -1,8 +1,8 @@
 plugins {
 	id 'java'
 	id 'maven-publish'
-	id 'checkstyle'
-	id 'com.diffplug.gradle.spotless' version '4.5.1'
+	//id 'checkstyle'
+	//id 'com.diffplug.gradle.spotless' version '4.5.1'
 	id 'com.github.johnrengelman.shadow' version '4.0.4'
 }
 
@@ -63,7 +63,7 @@ jar {
 					'Main-Class': "net.fabricmc.tinyremapper.Main"
 	}
 }
-
+/*
 checkstyle {
 	configFile = file("checkstyle.xml")
 	toolVersion = '8.31'
@@ -76,7 +76,7 @@ spotless {
 		licenseHeaderFile(rootProject.file('HEADER')).yearSeparator(', ')
 	}
 }
-
+*/
 publishing {
 	publications {
 		mavenJava(MavenPublication) {
